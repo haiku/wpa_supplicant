@@ -472,7 +472,6 @@ WPASupplicantApp::_JoinNetwork(BMessage *message)
 		return B_NO_MEMORY;
 
 	wpas_notify_network_added(interface, network);
-
 	network->disabled = 1;
 	wpa_config_set_network_defaults(network);
 
@@ -489,16 +488,7 @@ WPASupplicantApp::_JoinNetwork(BMessage *message)
 		result = wpa_config_set(network, "scan_ssid", "1", 1);
 
 	if (authMode >= B_NETWORK_AUTHENTICATION_WPA) {
-		if (result == 0)
-			result = wpa_config_set(network, "proto", "WPA RSN", 2);
-		if (result == 0)
-			result = wpa_config_set(network, "key_mgmt", "WPA-PSK", 3);
-		if (result == 0)
-			result = wpa_config_set(network, "pairwise", "CCMP TKIP NONE", 4);
-		if (result == 0) {
-			result = wpa_config_set(network, "group",
-				"CCMP TKIP WEP104 WEP40", 5);
-		}
+		// Nothing to do here.
 	} else {
 		// Open or WEP.
 		if (result == 0)
@@ -668,6 +658,10 @@ WPASupplicantApp::_SuccessfullyJoined(const wpa_supplicant *interface,
 		case WPA_CIPHER_CCMP:
 			network.cipher = B_NETWORK_CIPHER_CCMP;
 			break;
+		default:
+			fprintf(stderr, "WPASupplicantApp: Unknown pairwise cipher %d!",
+				interface->pairwise_cipher);
+			break;
 	}
 
 	switch (interface->group_cipher) {
@@ -685,6 +679,10 @@ WPASupplicantApp::_SuccessfullyJoined(const wpa_supplicant *interface,
 			break;
 		case WPA_CIPHER_CCMP:
 			network.group_cipher = B_NETWORK_CIPHER_CCMP;
+			break;
+		default:
+			fprintf(stderr, "WPASupplicantApp: Unknown group cipher %d!",
+				interface->group_cipher);
 			break;
 	}
 
@@ -709,6 +707,10 @@ WPASupplicantApp::_SuccessfullyJoined(const wpa_supplicant *interface,
 			break;
 		case WPA_KEY_MGMT_PSK_SHA256:
 			network.key_mode = B_KEY_MODE_PSK_SHA256;
+			break;
+		default:
+			fprintf(stderr, "WPASupplicantApp: Unknown key mode %d!",
+				interface->key_mgmt);
 			break;
 	}
 
