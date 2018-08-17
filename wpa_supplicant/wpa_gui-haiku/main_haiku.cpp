@@ -597,14 +597,9 @@ WPASupplicantApp::_NotifyNetworkEvent(BMessage *message)
 	BString interfaceName;
 	if (message->FindString("interface", &interfaceName) != B_OK)
 		return B_ERROR;
-
 	interfaceName.Prepend("/dev/");
-	wpa_supplicant *interface = wpa_supplicant_get_iface(fWPAGlobal,
-		interfaceName.String());
-	if (interface == NULL)
-		return B_ENTRY_NOT_FOUND;
 
-	void (*callback)(void *context, void *data, int opcode) = NULL;
+	void (*callback)(void *context, const char *ifname, int opcode) = NULL;
 	status_t result = message->FindPointer("callback", (void **)&callback);
 	if (result != B_OK)
 		return result;
@@ -614,10 +609,7 @@ WPASupplicantApp::_NotifyNetworkEvent(BMessage *message)
 	if (result != B_OK)
 		return result;
 
-	void *data = NULL;
-	message->FindPointer("data", &data);
-
-	callback(context, data, message->FindInt32("opcode"));
+	callback(context, interfaceName.String(), message->FindInt32("opcode"));
 	return B_OK;
 }
 

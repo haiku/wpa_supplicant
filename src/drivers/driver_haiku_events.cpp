@@ -25,12 +25,9 @@
 
 class EventLooper : public BLooper {
 public:
-	EventLooper(void *context, void *driverData, const char *interfaceName,
-		void (*callback)(void *, void *, int))
+	EventLooper(void *context, void (*callback)(void *, const char *, int))
 		:
 		fContext(context),
-		fDriverData(driverData),
-		fInterfaceName(interfaceName),
 		fCallback(callback),
 		fQuitting(false)
 	{
@@ -58,22 +55,14 @@ protected:
 		if (message->FindString("interface", &interfaceName) != B_OK)
 			return;
 
-		if (fInterfaceName.FindFirst(interfaceName) < 0) {
-			// The notification is for some other interface
-			return;
-		}
-
 		message->AddPointer("callback", (void *)fCallback);
 		message->AddPointer("context", fContext);
-		message->AddPointer("data", fDriverData);
 		be_app->PostMessage(message);
 	}
 
 private:
 	void *fContext;
-	void *fDriverData;
-	BString fInterfaceName;
-	void (*fCallback)(void *, void *, int);
+	void (*fCallback)(void *, const char*, int);
 	bool fQuitting;
 };
 
@@ -88,16 +77,13 @@ haiku_unregister_events(void *events)
 
 
 extern "C" int
-haiku_register_events(void *ctx, void *drv, const char *ifname, void **events,
-	void (*callback)(void *ctx, void *drv, int opcode))
+haiku_register_events(void* ctx, void (*callback)(void* ctx, const char* ifname,
+	int opcode))
 {
-	EventLooper *eventLooper = new(std::nothrow) EventLooper(ctx, drv, ifname,
-		callback);
+	EventLooper *eventLooper = new(std::nothrow) EventLooper(ctx, callback);
 	if (eventLooper == NULL)
 		return B_NO_MEMORY;
 
 	eventLooper->Run();
-
-	*events = eventLooper;
 	return 0;
 }
