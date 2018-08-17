@@ -190,7 +190,7 @@ const u8 * get_ie_ext(const u8 *ies, size_t len, u8 ext);
 size_t mbo_add_ie(u8 *buf, size_t len, const u8 *attr, size_t attr_len);
 
 struct country_op_class {
-	u8 country_op_class;
+	u8 _country_op_class;
 	u8 global_op_class;
 };
 

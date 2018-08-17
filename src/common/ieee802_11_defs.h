@@ -932,7 +932,7 @@ struct ieee80211_mgmt {
 				struct {
 					u8 action;
 					u8 dialog_token;
-					u8 variable[];
+					u8 variable[0];
 				} STRUCT_PACKED rrm;
 			} u;
 		} STRUCT_PACKED action;

@@ -236,7 +236,7 @@ struct anqp_element {
 struct fils_realm {
 	struct dl_list list;
 	u8 hash[2];
-	char realm[];
+	char realm[0];
 };
 
 struct sae_password_entry {

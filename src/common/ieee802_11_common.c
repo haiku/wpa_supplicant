@@ -1601,7 +1601,7 @@ global_op_class_from_country_array(u8 op_class, size_t array_size,
 	size_t i;
 
 	for (i = 0; i < array_size; i++) {
-		if (country_array[i].country_op_class == op_class)
+		if (country_array[i]._country_op_class == op_class)
 			return country_array[i].global_op_class;
 	}
 
