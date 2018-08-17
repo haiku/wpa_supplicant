@@ -198,8 +198,9 @@ public:
 	WirelessConfigWindow(BRect frame)
 		:
 		BWindow(BRect(50, 50, 269, 302), "Connect Wireless Network",
-			B_TITLED_WINDOW, B_NOT_RESIZABLE | B_ASYNCHRONOUS_CONTROLS
-				| B_NOT_ZOOMABLE | B_AUTO_UPDATE_SIZE_LIMITS),
+			B_TITLED_WINDOW, B_NOT_CLOSABLE | B_NOT_RESIZABLE |
+				B_ASYNCHRONOUS_CONTROLS	| B_NOT_ZOOMABLE |
+				B_AUTO_UPDATE_SIZE_LIMITS),
 		fConfigView(NULL),
 		fDoneSem(-1),
 		fResult(B_ERROR)
