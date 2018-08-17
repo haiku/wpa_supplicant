@@ -283,6 +283,19 @@ struct wpa_interface_info {
 
 #define WPAS_MAX_SCAN_SSIDS 16
 
+struct wpa_driver_scan_ssid {
+	/**
+	 * ssid - specific SSID to scan for (ProbeReq)
+	 * %NULL or zero-length SSID is used to indicate active scan
+	 * with wildcard SSID.
+	 */
+	const u8 *ssid;
+	/**
+	 * ssid_len: Length of the SSID in octets
+	 */
+	size_t ssid_len;
+};
+
 /**
  * struct wpa_driver_scan_params - Scan parameters
  * Data for struct wpa_driver_ops::scan2().
@@ -291,18 +304,7 @@ struct wpa_driver_scan_params {
 	/**
 	 * ssids - SSIDs to scan for
 	 */
-	struct wpa_driver_scan_ssid {
-		/**
-		 * ssid - specific SSID to scan for (ProbeReq)
-		 * %NULL or zero-length SSID is used to indicate active scan
-		 * with wildcard SSID.
-		 */
-		const u8 *ssid;
-		/**
-		 * ssid_len: Length of the SSID in octets
-		 */
-		size_t ssid_len;
-	} ssids[WPAS_MAX_SCAN_SSIDS];
+	struct wpa_driver_scan_ssid ssids[WPAS_MAX_SCAN_SSIDS];
 
 	/**
 	 * num_ssids - Number of entries in ssids array

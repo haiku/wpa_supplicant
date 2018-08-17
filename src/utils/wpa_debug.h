@@ -88,7 +88,7 @@ void wpa_hexdump(int level, const char *title, const void *buf, size_t len);
 static inline void wpa_hexdump_buf(int level, const char *title,
 				   const struct wpabuf *buf)
 {
-	wpa_hexdump(level, title, buf ? wpabuf_head(buf) : NULL,
+	wpa_hexdump(level, title, buf ? (const u8 *)wpabuf_head(buf) : NULL,
 		    buf ? wpabuf_len(buf) : 0);
 }
 
@@ -110,7 +110,7 @@ void wpa_hexdump_key(int level, const char *title, const void *buf, size_t len);
 static inline void wpa_hexdump_buf_key(int level, const char *title,
 				       const struct wpabuf *buf)
 {
-	wpa_hexdump_key(level, title, buf ? wpabuf_head(buf) : NULL,
+	wpa_hexdump_key(level, title, buf ? (const u8 *)wpabuf_head(buf) : NULL,
 			buf ? wpabuf_len(buf) : 0);
 }
 

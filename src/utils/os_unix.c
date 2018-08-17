@@ -217,9 +217,9 @@ static int os_daemon(int nochdir, int noclose)
 
 int os_daemonize(const char *pid_file)
 {
-#if defined(__uClinux__) || defined(__sun__)
+#if defined(__uClinux__) || defined(__sun__) || defined(__HAIKU__)
 	return -1;
-#else /* defined(__uClinux__) || defined(__sun__) */
+#else /* defined(__uClinux__) || defined(__sun__) || defined(__HAIKU__) */
 	if (os_daemon(0, 0)) {
 		perror("daemon");
 		return -1;
@@ -234,7 +234,7 @@ int os_daemonize(const char *pid_file)
 	}
 
 	return -0;
-#endif /* defined(__uClinux__) || defined(__sun__) */
+#endif /* defined(__uClinux__) || defined(__sun__) || defined(__HAIKU__) */
 }
 
 
@@ -445,14 +445,14 @@ int os_file_exists(const char *fname)
 int os_fdatasync(FILE *stream)
 {
 	if (!fflush(stream)) {
-#ifndef __MACH__
+#if !defined(__MACH__) && !defined(__HAIKU__)
 		return fdatasync(fileno(stream));
 #else /* __MACH__ */
 #ifdef F_FULLFSYNC
 		/* OS X does not implement fdatasync(). */
 		return fcntl(fileno(stream), F_FULLFSYNC);
 #else /* F_FULLFSYNC */
-#error Neither fdatasync nor F_FULLSYNC are defined
+		return fsync(fileno(stream));
 #endif /* F_FULLFSYNC */
 #endif /* __MACH__ */
 	}

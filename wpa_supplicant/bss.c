@@ -404,7 +404,7 @@ static struct wpa_bss * wpa_bss_add(struct wpa_supplicant *wpa_s,
 static int are_ies_equal(const struct wpa_bss *old,
 			 const struct wpa_scan_res *new_res, u32 ie)
 {
-	const u8 *old_ie, *new_ie;
+	const u8 *old_ie = NULL, *new_ie = NULL;
 	struct wpabuf *old_ie_buff = NULL;
 	struct wpabuf *new_ie_buff = NULL;
 	int new_ie_len, old_ie_len, ret, is_multi;

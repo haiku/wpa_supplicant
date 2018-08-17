@@ -478,35 +478,35 @@ struct ieee80211_mgmt {
 			le16 auth_transaction;
 			le16 status_code;
 			/* possibly followed by Challenge text */
-			u8 variable[];
+			u8 variable[0];
 		} STRUCT_PACKED auth;
 		struct {
 			le16 reason_code;
-			u8 variable[];
+			u8 variable[0];
 		} STRUCT_PACKED deauth;
 		struct {
 			le16 capab_info;
 			le16 listen_interval;
 			/* followed by SSID and Supported rates */
-			u8 variable[];
+			u8 variable[0];
 		} STRUCT_PACKED assoc_req;
 		struct {
 			le16 capab_info;
 			le16 status_code;
 			le16 aid;
 			/* followed by Supported rates */
-			u8 variable[];
+			u8 variable[0];
 		} STRUCT_PACKED assoc_resp, reassoc_resp;
 		struct {
 			le16 capab_info;
 			le16 listen_interval;
 			u8 current_ap[6];
 			/* followed by SSID and Supported rates */
-			u8 variable[];
+			u8 variable[0];
 		} STRUCT_PACKED reassoc_req;
 		struct {
 			le16 reason_code;
-			u8 variable[];
+			u8 variable[0];
 		} STRUCT_PACKED disassoc;
 		struct {
 			u8 timestamp[8];
@@ -514,7 +514,7 @@ struct ieee80211_mgmt {
 			le16 capab_info;
 			/* followed by some of SSID, Supported rates,
 			 * FH Params, DS Params, CF Params, IBSS Params, TIM */
-			u8 variable[];
+			u8 variable[0];
 		} STRUCT_PACKED beacon;
 		struct {
 			/* only variable items: SSID, Supported rates */
@@ -526,7 +526,7 @@ struct ieee80211_mgmt {
 			le16 capab_info;
 			/* followed by some of SSID, Supported rates,
 			 * FH Params, DS Params, CF Params, IBSS Params */
-			u8 variable[];
+			u8 variable[0];
 		} STRUCT_PACKED probe_resp;
 		struct {
 			u8 category;
@@ -535,7 +535,7 @@ struct ieee80211_mgmt {
 					u8 action_code;
 					u8 dialog_token;
 					u8 status_code;
-					u8 variable[];
+					u8 variable[0];
 				} STRUCT_PACKED wmm_action;
 				struct{
 					u8 action_code;
@@ -549,14 +549,14 @@ struct ieee80211_mgmt {
 					u8 action;
 					u8 sta_addr[ETH_ALEN];
 					u8 target_ap_addr[ETH_ALEN];
-					u8 variable[]; /* FT Request */
+					u8 variable[0]; /* FT Request */
 				} STRUCT_PACKED ft_action_req;
 				struct {
 					u8 action;
 					u8 sta_addr[ETH_ALEN];
 					u8 target_ap_addr[ETH_ALEN];
 					le16 status_code;
-					u8 variable[]; /* FT Request */
+					u8 variable[0]; /* FT Request */
 				} STRUCT_PACKED ft_action_resp;
 				struct {
 					u8 action;
@@ -569,23 +569,23 @@ struct ieee80211_mgmt {
 				struct {
 					u8 action;
 					u8 dialogtoken;
-					u8 variable[];
+					u8 variable[0];
 				} STRUCT_PACKED wnm_sleep_req;
 				struct {
 					u8 action;
 					u8 dialogtoken;
 					le16 keydata_len;
-					u8 variable[];
+					u8 variable[0];
 				} STRUCT_PACKED wnm_sleep_resp;
 				struct {
 					u8 action;
-					u8 variable[];
+					u8 variable[0];
 				} STRUCT_PACKED public_action;
 				struct {
 					u8 action; /* 9 */
 					u8 oui[3];
 					/* Vendor-specific content */
-					u8 variable[];
+					u8 variable[0];
 				} STRUCT_PACKED vs_public_action;
 				struct {
 					u8 action; /* 7 */
@@ -597,7 +597,7 @@ struct ieee80211_mgmt {
 					 * Session Information URL (optional),
 					 * BSS Transition Candidate List
 					 * Entries */
-					u8 variable[];
+					u8 variable[0];
 				} STRUCT_PACKED bss_tm_req;
 				struct {
 					u8 action; /* 8 */
@@ -607,7 +607,7 @@ struct ieee80211_mgmt {
 					/* Target BSSID (optional),
 					 * BSS Transition Candidate List
 					 * Entries (optional) */
-					u8 variable[];
+					u8 variable[0];
 				} STRUCT_PACKED bss_tm_resp;
 				struct {
 					u8 action; /* 6 */
@@ -615,15 +615,15 @@ struct ieee80211_mgmt {
 					u8 query_reason;
 					/* BSS Transition Candidate List
 					 * Entries (optional) */
-					u8 variable[];
+					u8 variable[0];
 				} STRUCT_PACKED bss_tm_query;
 				struct {
 					u8 action; /* 15 */
-					u8 variable[];
+					u8 variable[0];
 				} STRUCT_PACKED slf_prot_action;
 				struct {
 					u8 action;
-					u8 variable[];
+					u8 variable[0];
 				} STRUCT_PACKED fst_action;
 			} u;
 		} STRUCT_PACKED action;

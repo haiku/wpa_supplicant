@@ -133,11 +133,13 @@ OBJS_c += ../src/utils/$(CONFIG_ELOOP).o
 
 ifndef CONFIG_OSX
 ifeq ($(CONFIG_ELOOP), eloop)
+ifneq ($(CONFIG_L2_PACKET), haiku)
 # Using glibc < 2.17 requires -lrt for clock_gettime()
 # OS X has an alternate implementation
 LIBS += -lrt
 LIBS_c += -lrt
 LIBS_p += -lrt
+endif
 endif
 endif
 
@@ -790,7 +792,9 @@ OBJS += ../src/eap_peer/eap.o ../src/eap_peer/eap_methods.o
 NEED_EAP_COMMON=y
 ifdef CONFIG_DYNAMIC_EAP_METHODS
 CFLAGS += -DCONFIG_DYNAMIC_EAP_METHODS
+ifneq ($(CONFIG_L2_PACKET), haiku)
 LIBS += -ldl -rdynamic
+endif
 endif
 endif
 
@@ -1132,9 +1136,24 @@ ifdef TLS_FUNCS
 ifdef CONFIG_SMARTCARD
 ifndef CONFIG_NATIVE_WINDOWS
 ifneq ($(CONFIG_L2_PACKET), freebsd)
+ifneq ($(CONFIG_L2_PACKET), haiku)
 LIBS += -ldl
 endif
 endif
+endif
+endif
+endif
+
+ifeq ($(CONFIG_L2_PACKET), haiku)
+CFLAGS += -I/system/develop/headers/private/libs/compat/freebsd11_network/compat/
+CFLAGS += -I/system/develop/headers/private/libs/compat/freebsd11_wlan/
+OBJS += wpa_gui-haiku/WirelessConfigDialog.o
+OBJS += wpa_gui-haiku/notify_haiku.o
+CONFIG_MAIN = wpa_gui-haiku/main_haiku
+LIBS += -lnetwork -lbe -lbnetapi
+LIBS_c += -lnetwork
+ifeq ($(shell $(CC) -dumpversion | cut -d. -f1), 7)
+LIBS += -lstdc++
 endif
 endif
 
@@ -1669,9 +1688,18 @@ wpa_priv: $(BCHECK) $(OBJS_priv)
 
 $(OBJS_c) $(OBJS_t) $(OBJS_t2) $(OBJS) $(BCHECK) $(EXTRA_progs): .config
 
+ifneq ($(CONFIG_L2_PACKET), haiku)
 wpa_supplicant: $(BCHECK) $(OBJS) $(EXTRA_progs)
 	$(Q)$(LDO) $(LDFLAGS) -o wpa_supplicant $(OBJS) $(LIBS) $(EXTRALIBS)
 	@$(E) "  LD " $@
+else
+wpa_supplicant: $(BCHECK) $(OBJS) $(EXTRA_progs)
+	$(Q)$(LDO) $(LDFLAGS) -o wpa_supplicant $(OBJS) $(LIBS) $(EXTRALIBS)
+	@$(E) "  LD " $@
+	rc -o wpa_gui-haiku/wpa_supplicant.rsrc wpa_gui-haiku/wpa_supplicant.rdef
+	xres -o wpa_supplicant wpa_gui-haiku/wpa_supplicant.rsrc
+	mimeset -F wpa_supplicant
+endif
 
 eapol_test: $(OBJS_t)
 	$(Q)$(LDO) $(LDFLAGS) -o eapol_test $(OBJS_t) $(LIBS)
@@ -1759,6 +1787,10 @@ else
 	@$(E) "  CC " $<
 endif
 
+%.o: %.cpp
+	$(Q)$(CC) -c -o $@ $(CFLAGS) $<
+	@$(E) "  CPP " $<
+
 %.service: %.service.in
 	$(Q)sed -e 's|\@BINDIR\@|$(BINDIR)|g' $< >$@
 	@$(E) "  sed" $<
@@ -1826,5 +1858,6 @@ clean:
 	rm -rf lcov-html
 	rm -f libwpa_client.a
 	rm -f libwpa_client.so
+	rm -f wpa_gui-haiku/*.rsrc wpa_gui-haiku/*.o
 
 -include $(OBJS:%.o=%.d)

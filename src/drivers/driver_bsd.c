@@ -44,15 +44,36 @@
 #if __NetBSD__
 #include <net80211/ieee80211_netbsd.h>
 #endif
+#ifdef __HAIKU__
+#include <NetworkNotifications.h>
+
+#include <net/if.h>
+#include <net/if_media.h>
+#include <net/ethernet.h>
+#include <sys/sockio.h>
+
+#include "net80211/ieee80211.h"
+#include "net80211/ieee80211_ioctl.h"
+#include "net80211/ieee80211_crypto.h"
+#endif /* __HAIKU__ */
 
 #include "l2_packet/l2_packet.h"
+
+
+#ifdef __HAIKU__
+void haiku_unregister_events(void *drv);
+int haiku_register_events(void *ctx, void *drv, const char *ifname,
+	void **events, void (*callback)(void *ctx, void *drv, int opcode));
+#endif
 
 struct bsd_driver_data {
 	struct hostapd_data *hapd;	/* back pointer */
 
 	int	sock;			/* open socket for 802.11 ioctls */
 	struct l2_packet_data *sock_xmit;/* raw packet xmit socket */
+#ifndef __HAIKU__
 	int	route;			/* routing socket for events */
+#endif
 	char	ifname[IFNAMSIZ+1];	/* interface name */
 	unsigned int ifindex;		/* interface index */
 	void	*ctx;
@@ -62,8 +83,12 @@ struct bsd_driver_data {
 	int	prev_privacy;	/* privacy state to restore on deinit */
 	int	prev_wpa;	/* wpa state to restore on deinit */
 	enum ieee80211_opmode opmode;	/* operation mode */
+#ifndef __HAIKU__
 	char	*event_buf;
 	size_t	event_buf_len;
+#else
+	void	*events;
+#endif
 };
 
 /* Generic functions for hostapd and wpa_supplicant */
@@ -81,7 +106,7 @@ bsd_set80211(void *priv, int op, int val, const void *arg, int arg_len)
 	ireq.i_data = (void *) arg;
 	ireq.i_len = arg_len;
 
-	if (ioctl(drv->sock, SIOCS80211, &ireq) < 0) {
+	if (ioctl(drv->sock, SIOCS80211, &ireq, sizeof(ireq)) < 0) {
 		wpa_printf(MSG_ERROR, "ioctl[SIOCS80211, op=%u, val=%u, "
 			   "arg_len=%u]: %s", op, val, arg_len,
 			   strerror(errno));
@@ -102,8 +127,8 @@ bsd_get80211(void *priv, struct ieee80211req *ireq, int op, void *arg,
 	ireq->i_len = arg_len;
 	ireq->i_data = arg;
 
-	if (ioctl(drv->sock, SIOCG80211, ireq) < 0) {
-		wpa_printf(MSG_ERROR, "ioctl[SIOCS80211, op=%u, "
+	if (ioctl(drv->sock, SIOCG80211, ireq, sizeof(*ireq)) < 0) {
+		wpa_printf(MSG_ERROR, "ioctl[SIOCG80211, op=%u, "
 			   "arg_len=%u]: %s", op, arg_len, strerror(errno));
 		return -1;
 	}
@@ -143,7 +168,7 @@ bsd_get_ssid(void *priv, u8 *ssid, int len)
 	os_memset(&ifr, 0, sizeof(ifr));
 	os_strlcpy(ifr.ifr_name, drv->ifname, sizeof(ifr.ifr_name));
 	ifr.ifr_data = (void *)&nwid;
-	if (ioctl(drv->sock, SIOCG80211NWID, &ifr) < 0 ||
+	if (ioctl(drv->sock, SIOCG80211NWID, &ifr, sizeof(ifr)) < 0 ||
 	    nwid.i_len > IEEE80211_NWID_LEN)
 		return -1;
 	os_memcpy(ssid, nwid.i_nwid, nwid.i_len);
@@ -166,7 +191,7 @@ bsd_set_ssid(void *priv, const u8 *ssid, int ssid_len)
 	os_memset(&ifr, 0, sizeof(ifr));
 	os_strlcpy(ifr.ifr_name, drv->ifname, sizeof(ifr.ifr_name));
 	ifr.ifr_data = (void *)&nwid;
-	return ioctl(drv->sock, SIOCS80211NWID, &ifr);
+	return ioctl(drv->sock, SIOCS80211NWID, &ifr, sizeof(ifr));
 #else
 	return set80211var(drv, IEEE80211_IOC_SSID, ssid, ssid_len);
 #endif
@@ -181,7 +206,7 @@ bsd_get_if_media(void *priv)
 	os_memset(&ifmr, 0, sizeof(ifmr));
 	os_strlcpy(ifmr.ifm_name, drv->ifname, sizeof(ifmr.ifm_name));
 
-	if (ioctl(drv->sock, SIOCGIFMEDIA, &ifmr) < 0) {
+	if (ioctl(drv->sock, SIOCGIFMEDIA, &ifmr, sizeof(ifmr)) < 0) {
 		wpa_printf(MSG_ERROR, "%s: SIOCGIFMEDIA %s", __func__,
 			   strerror(errno));
 		return -1;
@@ -200,7 +225,7 @@ bsd_set_if_media(void *priv, int media)
 	os_strlcpy(ifr.ifr_name, drv->ifname, sizeof(ifr.ifr_name));
 	ifr.ifr_media = media;
 
-	if (ioctl(drv->sock, SIOCSIFMEDIA, &ifr) < 0) {
+	if (ioctl(drv->sock, SIOCSIFMEDIA, &ifr, sizeof(ifr)) < 0) {
 		wpa_printf(MSG_ERROR, "%s: SIOCSIFMEDIA %s", __func__,
 			   strerror(errno));
 		return -1;
@@ -257,13 +282,14 @@ bsd_send_mlme_param(void *priv, const u8 op, const u16 reason, const u8 *addr)
 static int
 bsd_ctrl_iface(void *priv, int enable)
 {
+#ifndef __HAIKU__
 	struct bsd_driver_data *drv = priv;
 	struct ifreq ifr;
 
 	os_memset(&ifr, 0, sizeof(ifr));
 	os_strlcpy(ifr.ifr_name, drv->ifname, sizeof(ifr.ifr_name));
 
-	if (ioctl(drv->sock, SIOCGIFFLAGS, &ifr) < 0) {
+	if (ioctl(drv->sock, SIOCGIFFLAGS, &ifr, sizeof(ifr)) < 0) {
 		wpa_printf(MSG_ERROR, "ioctl[SIOCGIFFLAGS]: %s",
 			   strerror(errno));
 		return -1;
@@ -279,13 +305,17 @@ bsd_ctrl_iface(void *priv, int enable)
 		ifr.ifr_flags &= ~IFF_UP;
 	}
 
-	if (ioctl(drv->sock, SIOCSIFFLAGS, &ifr) < 0) {
+	if (ioctl(drv->sock, SIOCSIFFLAGS, &ifr, sizeof(ifr)) < 0) {
 		wpa_printf(MSG_ERROR, "ioctl[SIOCSIFFLAGS]: %s",
 			   strerror(errno));
 		return -1;
 	}
 
 	return 0;
+#else /* !__HAIKU__ */
+	return set80211var(priv, enable ? IEEE80211_IOC_HAIKU_COMPAT_WLAN_UP
+			: IEEE80211_IOC_HAIKU_COMPAT_WLAN_DOWN, NULL, 0);
+#endif /* __HAIKU__ */
 }
 
 static int
@@ -501,6 +531,7 @@ bsd_set_ieee8021x(void *priv, struct wpa_bss_params *params)
 	return bsd_ctrl_iface(priv, 1);
 }
 
+#ifndef __HAIKU__
 static void
 bsd_new_sta(void *priv, void *ctx, u8 addr[IEEE80211_ADDR_LEN])
 {
@@ -528,6 +559,7 @@ bsd_new_sta(void *priv, void *ctx, u8 addr[IEEE80211_ADDR_LEN])
 no_ie:
 	drv_event_assoc(ctx, addr, iebuf, ielen, 0);
 }
+#endif // !__HAIKU__
 
 static int
 bsd_send_eapol(void *priv, const u8 *addr, const u8 *data, size_t data_len,
@@ -576,7 +608,7 @@ bsd_set_freq(void *priv, struct hostapd_freq_params *freq)
 	os_memset(&creq, 0, sizeof(creq));
 	os_strlcpy(creq.i_name, drv->ifname, sizeof(creq.i_name));
 	creq.i_channel = (u_int16_t)channel;
-	return ioctl(drv->sock, SIOCS80211CHANNEL, &creq);
+	return ioctl(drv->sock, SIOCS80211CHANNEL, &creq, sizeof(creq));
 #else /* SIOCS80211CHANNEL */
 	return set80211param(priv, IEEE80211_IOC_CHANNEL, channel);
 #endif /* SIOCS80211CHANNEL */
@@ -594,6 +626,7 @@ bsd_set_opt_ie(void *priv, const u8 *ie, size_t ie_len)
 	return 0;
 }
 
+#ifndef __HAIKU__
 static size_t
 rtbuf_len(void)
 {
@@ -609,6 +642,7 @@ rtbuf_len(void)
 
 	return len;
 }
+#endif // !__HAIKU__
 
 #ifdef HOSTAPD
 
@@ -684,7 +718,7 @@ bsd_get_seqnum(const char *ifname, void *priv, const u8 *addr, int idx,
 }
 
 
-static int 
+static int
 bsd_flush(void *priv)
 {
 	u8 allsta[IEEE80211_ADDR_LEN];
@@ -932,7 +966,7 @@ wpa_driver_bsd_get_bssid(void *priv, u8 *bssid)
 	struct ieee80211_bssid bs;
 
 	os_strlcpy(bs.i_name, drv->ifname, sizeof(bs.i_name));
-	if (ioctl(drv->sock, SIOCG80211BSSID, &bs) < 0)
+	if (ioctl(drv->sock, SIOCG80211BSSID, &bs, sizeof(bs)) < 0)
 		return -1;
 	os_memcpy(bssid, bs.i_bssid, sizeof(bs.i_bssid));
 	return 0;
@@ -1044,7 +1078,7 @@ wpa_driver_bsd_associate(void *priv, struct wpa_driver_associate_params *params)
 	wpa_printf(MSG_DEBUG,
 		"%s: ssid '%.*s' wpa ie len %u pairwise %u group %u key mgmt %u"
 		, __func__
-		   , (unsigned int) params->ssid_len, params->ssid
+		, (int) params->ssid_len, params->ssid
 		, (unsigned int) params->wpa_ie_len
 		, params->pairwise_suite
 		, params->group_suite
@@ -1183,6 +1217,23 @@ wpa_driver_bsd_scan(void *priv, struct wpa_driver_scan_params *params)
 #endif /* IEEE80211_IOC_SCAN_MAX_SSID */
 }
 
+#ifdef __HAIKU__
+static void
+wpa_driver_haiku_event(void *ctx, void *drv, int opcode)
+{
+	switch (opcode) {
+		case B_NETWORK_WLAN_JOINED:
+			wpa_supplicant_event(ctx, EVENT_ASSOC, NULL);
+			break;
+		case B_NETWORK_WLAN_LEFT:
+			wpa_supplicant_event(ctx, EVENT_DISASSOC, NULL);
+			break;
+		case B_NETWORK_WLAN_SCANNED:
+			wpa_supplicant_event(ctx, EVENT_SCAN_RESULTS, NULL);
+			break;
+	}
+}
+#else // !__HAIKU__
 static void
 wpa_driver_bsd_event_receive(int sock, void *ctx, void *sock_ctx)
 {
@@ -1295,6 +1346,7 @@ wpa_driver_bsd_event_receive(int sock, void *ctx, void *sock_ctx)
 		break;
 	}
 }
+#endif	// !__HAIKU__
 
 static void
 wpa_driver_bsd_add_scan_entry(struct wpa_scan_results *res,
@@ -1313,7 +1365,11 @@ wpa_driver_bsd_add_scan_entry(struct wpa_scan_results *res,
 	if (result == NULL)
 		return;
 	os_memcpy(result->bssid, sr->isr_bssid, ETH_ALEN);
+#ifdef __HAIKU__
+	result->freq = sr->isr_chan.ic_freq;
+#else
 	result->freq = sr->isr_freq;
+#endif
 	result->beacon_int = sr->isr_intval;
 	result->caps = sr->isr_capinfo;
 	result->qual = sr->isr_rssi;
@@ -1382,7 +1438,7 @@ wpa_driver_bsd_get_scan_results2(void *priv)
 
 	pos = buf;
 	rest = len;
-	while (rest >= sizeof(struct ieee80211req_scan_result)) {
+	while (rest >= (int) sizeof(struct ieee80211req_scan_result)) {
 		sr = (struct ieee80211req_scan_result *)pos;
 		wpa_driver_bsd_add_scan_entry(res, sr);
 		pos += sr->isr_len;
@@ -1507,6 +1563,7 @@ wpa_driver_bsd_init(void *ctx, const char *ifname)
 	if (drv == NULL)
 		return NULL;
 
+#ifndef __HAIKU__
 	drv->event_buf_len = rtbuf_len();
 
 	drv->event_buf = os_malloc(drv->event_buf_len);
@@ -1514,6 +1571,7 @@ wpa_driver_bsd_init(void *ctx, const char *ifname)
 		wpa_printf(MSG_ERROR, "%s: os_malloc() failed", __func__);
 		goto fail1;
 	}
+#endif // !__HAIKU__
 
 	/*
 	 * NB: We require the interface name be mappable to an index.
@@ -1536,11 +1594,18 @@ wpa_driver_bsd_init(void *ctx, const char *ifname)
 	if (bsd_ctrl_iface(drv, 0) < 0)
 		goto fail;
 
+#ifndef __HAIKU__
 	drv->route = socket(PF_ROUTE, SOCK_RAW, 0);
 	if (drv->route < 0)
 		goto fail;
 	eloop_register_read_sock(drv->route,
 		wpa_driver_bsd_event_receive, ctx, drv);
+#else
+	if (haiku_register_events(ctx, drv, ifname, &drv->events,
+			wpa_driver_haiku_event) != 0) {
+		goto fail;
+	}
+#endif
 
 	drv->ctx = ctx;
 
@@ -1569,7 +1634,9 @@ wpa_driver_bsd_init(void *ctx, const char *ifname)
 fail:
 	close(drv->sock);
 fail1:
+#ifndef __HAIKU__
 	os_free(drv->event_buf);
+#endif
 	os_free(drv);
 	return NULL;
 #undef GETPARAM
@@ -1581,7 +1648,11 @@ wpa_driver_bsd_deinit(void *priv)
 	struct bsd_driver_data *drv = priv;
 
 	wpa_driver_bsd_set_wpa(drv, 0);
+#ifndef __HAIKU__
 	eloop_unregister_read_sock(drv->route);
+#else
+	haiku_unregister_events(drv->events);
+#endif
 
 	/* NB: mark interface down */
 	bsd_ctrl_iface(drv, 0);
@@ -1593,9 +1664,13 @@ wpa_driver_bsd_deinit(void *priv)
 
 	if (drv->sock_xmit != NULL)
 		l2_packet_deinit(drv->sock_xmit);
+#ifndef __HAIKU__
 	(void) close(drv->route);		/* ioctl socket */
+#endif
 	(void) close(drv->sock);		/* event socket */
+#ifndef __HAIKU__
 	os_free(drv->event_buf);
+#endif
 	os_free(drv);
 }
 
