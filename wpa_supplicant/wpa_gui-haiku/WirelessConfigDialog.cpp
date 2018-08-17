@@ -13,6 +13,7 @@
  */
 
 #include <Button.h>
+#include <Catalog.h>
 #include <CheckBox.h>
 #include <GridLayout.h>
 #include <GridView.h>
@@ -28,6 +29,11 @@
 #include <View.h>
 
 #include <new>
+
+
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "wpa_supplicant"
+
 
 static const uint32 kMessageCancel = 'btcl';
 static const uint32 kMessageOk = 'btok';
@@ -59,8 +65,8 @@ public:
 		rootLayout->SetSpacing(inset);
 		layout->SetSpacing(inset, inset);
 
-		fNetworkName = new(std::nothrow) BTextControl("Network Name:", "",
-			NULL);
+		fNetworkName = new(std::nothrow) BTextControl(B_TRANSLATE("Network name:"),
+			"", NULL);
 		if (fNetworkName == NULL)
 			return;
 
@@ -72,22 +78,24 @@ public:
 		if (authMenu == NULL)
 			return;
 
-		fAuthOpen = new(std::nothrow) BMenuItem("Open", NULL);
+		fAuthOpen = new(std::nothrow) BMenuItem(
+			B_TRANSLATE_COMMENT("Open", "Open network"), NULL);
 		authMenu->AddItem(fAuthOpen);
-		fAuthWEP = new(std::nothrow) BMenuItem("WEP", NULL);
+		fAuthWEP = new(std::nothrow) BMenuItem(B_TRANSLATE("WEP"), NULL);
 		authMenu->AddItem(fAuthWEP);
-		fAuthWPA = new(std::nothrow) BMenuItem("WPA/WPA2", NULL);
+		fAuthWPA = new(std::nothrow) BMenuItem(B_TRANSLATE("WPA/WPA2"), NULL);
 		authMenu->AddItem(fAuthWPA);
 
 		BMenuField* authMenuField = new(std::nothrow) BMenuField(
-			"Authentication:", authMenu);
+			B_TRANSLATE("Authentication:"), authMenu);
 		if (authMenuField == NULL)
 			return;
 
 		layout->AddItem(authMenuField->CreateLabelLayoutItem(), 0, row);
 		layout->AddItem(authMenuField->CreateMenuBarLayoutItem(), 1, row++);
 
-		fPassword = new(std::nothrow) BTextControl("Password:", "", NULL);
+		fPassword = new(std::nothrow) BTextControl(B_TRANSLATE("Password:"),
+			"", NULL);
 		if (fPassword == NULL)
 			return;
 
@@ -99,7 +107,7 @@ public:
 		layout->AddItem(fPassword->CreateLabelLayoutItem(), 0, row);
 		layout->AddItem(layoutItem, 1, row++);
 
-		fPersist = new(std::nothrow) BCheckBox("Store this configuration");
+		fPersist = new(std::nothrow) BCheckBox(B_TRANSLATE("Store this configuration"));
 		layout->AddItem(BSpaceLayoutItem::CreateGlue(), 0, row);
 		layout->AddView(fPersist, 1, row++);
 
@@ -107,13 +115,14 @@ public:
 		if (buttons == NULL)
 			return;
 
-		fCancelButton = new(std::nothrow) BButton("Cancel",
+		fCancelButton = new(std::nothrow) BButton(B_TRANSLATE("Cancel"),
 			new BMessage(kMessageCancel));
 		buttons->GroupLayout()->AddView(fCancelButton);
 
 		buttons->GroupLayout()->AddItem(BSpaceLayoutItem::CreateGlue());
 
-		fOkButton = new(std::nothrow) BButton("OK", new BMessage(kMessageOk));
+		fOkButton = new(std::nothrow) BButton(B_TRANSLATE("OK"),
+			new BMessage(kMessageOk));
 		buttons->GroupLayout()->AddView(fOkButton);
 
 		rootLayout->AddView(controls);
@@ -195,9 +204,9 @@ private:
 
 class WirelessConfigWindow : public BWindow {
 public:
-	WirelessConfigWindow(BRect frame)
+	WirelessConfigWindow()
 		:
-		BWindow(BRect(50, 50, 269, 302), "Connect Wireless Network",
+		BWindow(BRect(50, 50, 269, 302), B_TRANSLATE("Connect to a WiFi network"),
 			B_TITLED_WINDOW, B_NOT_CLOSABLE | B_NOT_RESIZABLE |
 				B_ASYNCHRONOUS_CONTROLS	| B_NOT_ZOOMABLE |
 				B_AUTO_UPDATE_SIZE_LIMITS),
@@ -286,7 +295,7 @@ status_t
 wireless_config_dialog(BMessage& message)
 {
 	WirelessConfigWindow* configWindow
-		= new(std::nothrow) WirelessConfigWindow(BRect(100, 100, 200, 200));
+		= new(std::nothrow) WirelessConfigWindow;
 	if (configWindow == NULL)
 		return B_NO_MEMORY;
 

@@ -1289,7 +1289,7 @@ endif
 ifeq ($(CONFIG_L2_PACKET), haiku)
 OBJS += wpa_gui-haiku/WirelessConfigDialog.o
 OBJS += wpa_gui-haiku/notify_haiku.o
-LIBS += -lnetwork -lbe -lbnetapi
+LIBS += -lnetwork -lbe -lbnetapi -llocalestub
 LIBS_c += -lnetwork
 ifeq ($(shell $(CC) -dumpversion | cut -d. -f1), 7)
 LIBS += -lstdc++
