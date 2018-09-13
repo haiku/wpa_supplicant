@@ -1259,16 +1259,16 @@ wpa_driver_haiku_event(void* global_ctx, const char* ifname, int opcode)
 		case B_NETWORK_INTERFACE_REMOVED:
 			if (opcode == B_NETWORK_INTERFACE_REMOVED) {
 				event.interface_status.ievent = EVENT_INTERFACE_REMOVED;
-				if (drv)
+				if (drv != NULL)
 					drv->if_removed = 1;
 			} else {
 				event.interface_status.ievent = EVENT_INTERFACE_ADDED;
-				if (drv)
+				if (drv != NULL)
 					drv->if_removed = 0;
 			}
 			os_strlcpy(event.interface_status.ifname, ifname,
 				sizeof(event.interface_status.ifname));
-			if (drv) {
+			if (drv != NULL) {
 				wpa_supplicant_event(drv->ctx, EVENT_INTERFACE_STATUS,
 					&event);
 			} else {
@@ -1278,17 +1278,17 @@ wpa_driver_haiku_event(void* global_ctx, const char* ifname, int opcode)
 			}
 			break;
 		case B_NETWORK_WLAN_JOINED:
-			if (drv->is_ap)
+			if (drv == NULL || drv->is_ap)
 				break;
 			wpa_supplicant_event(drv->ctx, EVENT_ASSOC, NULL);
 			break;
 		case B_NETWORK_WLAN_LEFT:
-			if (drv->is_ap)
+			if (drv == NULL || drv->is_ap)
 				break;
 			wpa_supplicant_event(drv->ctx, EVENT_DISASSOC, NULL);
 			break;
 		case B_NETWORK_WLAN_SCANNED:
-			if (drv->is_ap)
+			if (drv == NULL || drv->is_ap)
 				break;
 			wpa_supplicant_event(drv->ctx, EVENT_SCAN_RESULTS, NULL);
 			break;
