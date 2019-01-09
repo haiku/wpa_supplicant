@@ -1460,11 +1460,7 @@ wpa_driver_bsd_add_scan_entry(struct wpa_scan_results *res,
 	if (result == NULL)
 		return;
 	os_memcpy(result->bssid, sr->isr_bssid, ETH_ALEN);
-#ifdef __HAIKU__
-	result->freq = sr->isr_chan.ic_freq;
-#else
 	result->freq = sr->isr_freq;
-#endif
 	result->beacon_int = sr->isr_intval;
 	result->caps = sr->isr_capinfo;
 	result->qual = sr->isr_rssi;
