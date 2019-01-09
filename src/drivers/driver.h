@@ -567,6 +567,18 @@ struct wpa_driver_scan_params {
 	 */
 	s8 relative_adjust_rssi;
 
+	/**
+	 * oce_scan
+	 *
+	 * Enable the following OCE scan features: (WFA OCE TechSpec v1.0)
+	 * - Accept broadcast Probe Response frame.
+	 * - Probe Request frame deferral and suppression.
+	 * - Max Channel Time - driver fills FILS request params IE with
+	 *   Maximum Channel Time.
+	 * - Send 1st Probe Request frame in rate of minimum 5.5 Mbps.
+	 */
+	unsigned int oce_scan:1;
+
 	/*
 	 * NOTE: Whenever adding new parameters here, please make sure
 	 * wpa_scan_clone_params() and wpa_scan_free_params() get updated with
@@ -1565,6 +1577,8 @@ struct wpa_driver_capa {
 #define WPA_DRIVER_FLAGS_OCE_STA_CFON		0x0020000000000000ULL
 /** Driver supports MFP-optional in the connect command */
 #define WPA_DRIVER_FLAGS_MFP_OPTIONAL		0x0040000000000000ULL
+/** Driver is a self-managed regulatory device */
+#define WPA_DRIVER_FLAGS_SELF_MANAGED_REGULATORY       0x0080000000000000ULL
 	u64 flags;
 
 #define FULL_AP_CLIENT_STATE_SUPP(drv_flags) \
@@ -1899,8 +1913,21 @@ enum chan_width {
 	CHAN_WIDTH_UNKNOWN
 };
 
+#define WPA_INVALID_NOISE 9999
+
 /**
  * struct wpa_signal_info - Information about channel signal quality
+ * @frequency: control frequency
+ * @above_threshold: true if the above threshold was crossed
+ *	(relevant for a CQM event)
+ * @current_signal: in dBm
+ * @avg_signal: in dBm
+ * @avg_beacon_signal: in dBm
+ * @current_noise: %WPA_INVALID_NOISE if not supported
+ * @current_txrate: current TX rate
+ * @chanwidth: channel width
+ * @center_frq1: center frequency for the first segment
+ * @center_frq2: center frequency for the second segment (if relevant)
  */
 struct wpa_signal_info {
 	u32 frequency;

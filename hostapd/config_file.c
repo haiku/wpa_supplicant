@@ -1237,6 +1237,8 @@ static int hostapd_config_ht_capab(struct hostapd_config *conf,
 		conf->ht_capab |= HT_CAP_INFO_SUPP_CHANNEL_WIDTH_SET;
 		conf->ht40_plus_minus_allowed = 1;
 	}
+	if (!os_strstr(capab, "[HT40+]") && !os_strstr(capab, "[HT40-]"))
+		conf->secondary_channel = 0;
 	if (os_strstr(capab, "[SMPS-STATIC]")) {
 		conf->ht_capab &= ~HT_CAP_INFO_SMPS_MASK;
 		conf->ht_capab |= HT_CAP_INFO_SMPS_STATIC;
@@ -2042,6 +2044,24 @@ static int hs20_parse_osu_nai(struct hostapd_bss_config *bss,
 	bss->last_osu->osu_nai = os_strdup(pos);
 	if (bss->last_osu->osu_nai == NULL)
 		return -1;
+
+	return 0;
+}
+
+
+static int hs20_parse_osu_nai2(struct hostapd_bss_config *bss,
+			       char *pos, int line)
+{
+	if (bss->last_osu == NULL) {
+		wpa_printf(MSG_ERROR, "Line %d: Unexpected OSU field", line);
+		return -1;
+	}
+
+	os_free(bss->last_osu->osu_nai2);
+	bss->last_osu->osu_nai2 = os_strdup(pos);
+	if (bss->last_osu->osu_nai2 == NULL)
+		return -1;
+	bss->hs20_osu_providers_nai_count++;
 
 	return 0;
 }
@@ -3759,6 +3779,9 @@ static int hostapd_config_fill(struct hostapd_config *conf,
 	} else if (os_strcmp(buf, "osu_nai") == 0) {
 		if (hs20_parse_osu_nai(bss, pos, line) < 0)
 			return 1;
+	} else if (os_strcmp(buf, "osu_nai2") == 0) {
+		if (hs20_parse_osu_nai2(bss, pos, line) < 0)
+			return 1;
 	} else if (os_strcmp(buf, "osu_method_list") == 0) {
 		if (hs20_parse_osu_method_list(bss, pos, line) < 0)
 			return 1;
@@ -3865,6 +3888,7 @@ static int hostapd_config_fill(struct hostapd_config *conf,
 	} else if (os_strcmp(buf, "sae_commit_override") == 0) {
 		wpabuf_free(bss->sae_commit_override);
 		bss->sae_commit_override = wpabuf_parse_bin(pos);
+#endif /* CONFIG_TESTING_OPTIONS */
 #ifdef CONFIG_SAE
 	} else if (os_strcmp(buf, "sae_password") == 0) {
 		if (parse_sae_password(bss, pos) < 0) {
@@ -3873,7 +3897,6 @@ static int hostapd_config_fill(struct hostapd_config *conf,
 			return 1;
 		}
 #endif /* CONFIG_SAE */
-#endif /* CONFIG_TESTING_OPTIONS */
 	} else if (os_strcmp(buf, "vendor_elements") == 0) {
 		if (parse_wpabuf_hex(line, buf, &bss->vendor_elements, pos))
 			return 1;
@@ -4085,6 +4108,8 @@ static int hostapd_config_fill(struct hostapd_config *conf,
 				   line, pos);
 			return 1;
 		}
+	} else if (os_strcmp(buf, "coloc_intf_reporting") == 0) {
+		bss->coloc_intf_reporting = atoi(pos);
 #endif /* CONFIG_OWE */
 	} else {
 		wpa_printf(MSG_ERROR,

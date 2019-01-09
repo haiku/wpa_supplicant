@@ -4,10 +4,12 @@
 # This software may be distributed under the terms of the BSD license.
 # See README for more details.
 
+import binascii
 import logging
 logger = logging.getLogger()
 import os
 import socket
+import struct
 import subprocess
 import threading
 import time
@@ -15,8 +17,11 @@ import time
 import hostapd
 from utils import HwsimSkip
 from hwsim import HWSimRadio
+import hwsim_utils
 from test_dpp import check_dpp_capab, update_hapd_config
 from test_suite_b import check_suite_b_192_capa, suite_b_as_params, suite_b_192_rsa_ap_params
+from test_ap_eap import check_eap_capa
+from test_ap_hs20 import hs20_ap_params
 
 def check_sigma_dut():
     if not os.path.exists("./sigma_dut"):
@@ -59,7 +64,8 @@ def sigma_dut_cmd_check(cmd, port=9000, timeout=2):
         raise Exception("sigma_dut command failed: " + cmd)
     return res
 
-def start_sigma_dut(ifname, debug=False, hostapd_logdir=None, cert_path=None):
+def start_sigma_dut(ifname, debug=False, hostapd_logdir=None, cert_path=None,
+                    bridge=None):
     check_sigma_dut()
     cmd = [ './sigma_dut',
             '-M', ifname,
@@ -74,6 +80,8 @@ def start_sigma_dut(ifname, debug=False, hostapd_logdir=None, cert_path=None):
         cmd += [ '-H', hostapd_logdir ]
     if cert_path:
         cmd += [ '-C', cert_path ]
+    if bridge:
+        cmd += [ '-b', bridge ]
     sigma = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE)
     for i in range(20):
@@ -2321,18 +2329,44 @@ def test_sigma_dut_sta_scan_bss(dev, apdev):
     finally:
         stop_sigma_dut(sigma)
 
-def test_sigma_dut_ap_eap_osen(dev, apdev, params):
-    """sigma_dut controlled AP with EAP+OSEN"""
+def test_sigma_dut_ap_osen(dev, apdev, params):
+    """sigma_dut controlled AP with OSEN"""
     logdir = os.path.join(params['logdir'],
-                          "sigma_dut_ap_eap_osen.sigma-hostapd")
+                          "sigma_dut_ap_osen.sigma-hostapd")
     with HWSimRadio() as (radio, iface):
         sigma = start_sigma_dut(iface, hostapd_logdir=logdir)
         try:
             sigma_dut_cmd_check("ap_reset_default")
             sigma_dut_cmd_check("ap_set_wireless,NAME,AP,CHANNEL,1,SSID,test-hs20,MODE,11ng")
             sigma_dut_cmd_check("ap_set_radius,NAME,AP,IPADDR,127.0.0.1,PORT,1812,PASSWORD,radius")
+            sigma_dut_cmd_check("ap_set_security,NAME,AP,KEYMGNT,OSEN,PMF,Optional")
+            sigma_dut_cmd_check("ap_config_commit,NAME,AP")
+
+            # RSN-OSEN (for OSU)
+            dev[0].connect("test-hs20", proto="OSEN", key_mgmt="OSEN",
+                           pairwise="CCMP", group="GTK_NOT_USED",
+                           eap="WFA-UNAUTH-TLS", identity="osen@example.com",
+                           ca_cert="auth_serv/ca.pem", scan_freq="2412")
+
+            sigma_dut_cmd_check("ap_reset_default")
+        finally:
+            stop_sigma_dut(sigma)
+
+def test_sigma_dut_ap_eap_osen(dev, apdev, params):
+    """sigma_dut controlled AP with EAP+OSEN"""
+    logdir = os.path.join(params['logdir'],
+                          "sigma_dut_ap_eap_osen.sigma-hostapd")
+    with HWSimRadio() as (radio, iface):
+        sigma = start_sigma_dut(iface, bridge="ap-br0", hostapd_logdir=logdir)
+        try:
+            sigma_dut_cmd_check("ap_reset_default")
+            sigma_dut_cmd_check("ap_set_wireless,NAME,AP,CHANNEL,1,SSID,test-hs20,MODE,11ng")
+            sigma_dut_cmd_check("ap_set_radius,NAME,AP,IPADDR,127.0.0.1,PORT,1812,PASSWORD,radius")
             sigma_dut_cmd_check("ap_set_security,NAME,AP,KEYMGNT,WPA2-ENT-OSEN,PMF,Optional")
             sigma_dut_cmd_check("ap_config_commit,NAME,AP")
+
+            subprocess.call(['brctl', 'setfd', 'ap-br0', '0'])
+            subprocess.call(['ip', 'link', 'set', 'dev', 'ap-br0', 'up'])
 
             # RSN-OSEN (for OSU)
             dev[0].connect("test-hs20", proto="OSEN", key_mgmt="OSEN",
@@ -2346,9 +2380,16 @@ def test_sigma_dut_ap_eap_osen(dev, apdev, params):
                            ca_cert="auth_serv/ca.pem", phase2="auth=MSCHAPV2",
                            ieee80211w='2', scan_freq="2412")
 
+            hwsim_utils.test_connectivity(dev[0], dev[1], broadcast=False,
+                                          success_expected=False, timeout=1)
+
             sigma_dut_cmd_check("ap_reset_default")
         finally:
             stop_sigma_dut(sigma)
+            subprocess.call(['ip', 'link', 'set', 'dev', 'ap-br0', 'down'],
+                            stderr=open('/dev/null', 'w'))
+            subprocess.call(['brctl', 'delbr', 'ap-br0'],
+                            stderr=open('/dev/null', 'w'))
 
 def test_sigma_dut_ap_eap(dev, apdev, params):
     """sigma_dut controlled AP WPA2-Enterprise"""
@@ -2453,6 +2494,142 @@ def test_sigma_dut_ap_ent_ft_eap(dev, apdev, params):
                            identity="gpsk user",
                            password="abcdefghijklmnop0123456789abcdef",
                            scan_freq="2412")
+
+            sigma_dut_cmd_check("ap_reset_default")
+        finally:
+            stop_sigma_dut(sigma)
+
+def test_sigma_dut_venue_url(dev, apdev):
+    """sigma_dut controlled Venue URL fetch"""
+    try:
+        run_sigma_dut_venue_url(dev, apdev)
+    finally:
+        dev[0].set("ignore_old_scan_res", "0")
+
+def run_sigma_dut_venue_url(dev, apdev):
+    ifname = dev[0].ifname
+    sigma = start_sigma_dut(ifname, debug=True)
+
+    ssid = "venue"
+    params = hostapd.wpa2_params(ssid=ssid, passphrase="12345678")
+    params["wpa_key_mgmt"] = "WPA-PSK-SHA256"
+    params["ieee80211w"] = "2"
+
+    venue_group = 1
+    venue_type = 13
+    venue_info = struct.pack('BB', venue_group, venue_type)
+    lang1 = "eng"
+    name1= "Example venue"
+    lang2 = "fin"
+    name2 = "Esimerkkipaikka"
+    venue1 = struct.pack('B', len(lang1 + name1)) + lang1 + name1
+    venue2 = struct.pack('B', len(lang2 + name2)) + lang2 + name2
+    venue_name = binascii.hexlify(venue_info + venue1 + venue2)
+
+    url1 = "http://example.com/venue"
+    url2 = "https://example.org/venue-info/"
+    params["venue_group"] = str(venue_group)
+    params["venue_type"] = str(venue_type)
+    params["venue_name"] = [ lang1 + ":" + name1, lang2 + ":" + name2 ]
+    params["venue_url"] = [ "1:" + url1, "2:" + url2 ]
+
+    hapd = hostapd.add_ap(apdev[0], params)
+
+    sigma_dut_cmd_check("sta_reset_default,interface,%s,prog,PMF" % ifname)
+    sigma_dut_cmd_check("sta_set_ip_config,interface,%s,dhcp,0,ip,127.0.0.11,mask,255.255.255.0" % ifname)
+    sigma_dut_cmd_check("sta_set_psk,interface,%s,ssid,%s,passphrase,%s,encpType,aes-ccmp,keymgmttype,wpa2,PMF,Required" % (ifname, "venue", "12345678"))
+    sigma_dut_cmd_check("sta_associate,interface,%s,ssid,%s,channel,1" % (ifname, "venue"))
+    sigma_dut_wait_connected(ifname)
+    sigma_dut_cmd_check("sta_get_ip_config,interface," + ifname)
+    sigma_dut_cmd_check("sta_hs2_venue_info,interface," + ifname + ",Display,Yes")
+    sigma_dut_cmd_check("sta_disconnect,interface," + ifname)
+    sigma_dut_cmd_check("sta_reset_default,interface," + ifname)
+
+    stop_sigma_dut(sigma)
+
+def test_sigma_dut_hs20_assoc_24(dev, apdev):
+    """sigma_dut controlled Hotspot 2.0 connection (2.4 GHz)"""
+    run_sigma_dut_hs20_assoc(dev, apdev, True)
+
+def test_sigma_dut_hs20_assoc_5(dev, apdev):
+    """sigma_dut controlled Hotspot 2.0 connection (5 GHz)"""
+    run_sigma_dut_hs20_assoc(dev, apdev, False)
+
+def run_sigma_dut_hs20_assoc(dev, apdev, band24):
+    hapd0 = None
+    hapd1 = None
+    try:
+        bssid0 = apdev[0]['bssid']
+        params = hs20_ap_params()
+        params['hessid'] = bssid0
+        hapd0 = hostapd.add_ap(apdev[0], params)
+
+        bssid1 = apdev[1]['bssid']
+        params = hs20_ap_params()
+        params['hessid'] = bssid0
+        params["hw_mode"] = "a"
+        params["channel"] = "36"
+        params["country_code"] = "US"
+        hapd1 = hostapd.add_ap(apdev[1], params)
+
+        band = "2.4" if band24 else "5"
+        exp_bssid = bssid0 if band24 else bssid1
+        run_sigma_dut_hs20_assoc_2(dev, apdev, band, exp_bssid)
+    finally:
+        dev[0].request("DISCONNECT")
+        if hapd0:
+            hapd0.request("DISABLE")
+        if hapd1:
+            hapd1.request("DISABLE")
+        subprocess.call(['iw', 'reg', 'set', '00'])
+        dev[0].flush_scan_cache()
+
+def run_sigma_dut_hs20_assoc_2(dev, apdev, band, expect_bssid):
+    check_eap_capa(dev[0], "MSCHAPV2")
+    dev[0].flush_scan_cache()
+
+    ifname = dev[0].ifname
+    sigma = start_sigma_dut(ifname, debug=True)
+
+    sigma_dut_cmd_check("sta_reset_default,interface,%s,prog,HS2-R3" % ifname)
+    sigma_dut_cmd_check("sta_set_ip_config,interface,%s,dhcp,0,ip,127.0.0.11,mask,255.255.255.0" % ifname)
+    sigma_dut_cmd_check("sta_add_credential,interface,%s,type,uname_pwd,realm,example.com,username,hs20-test,password,password" % ifname)
+    res = sigma_dut_cmd_check("sta_hs2_associate,interface,%s,band,%s" % (ifname, band),
+                              timeout=15)
+    sigma_dut_wait_connected(ifname)
+    sigma_dut_cmd_check("sta_get_ip_config,interface," + ifname)
+    sigma_dut_cmd_check("sta_disconnect,interface," + ifname)
+    sigma_dut_cmd_check("sta_reset_default,interface," + ifname)
+
+    stop_sigma_dut(sigma)
+
+    if "BSSID," + expect_bssid not in res:
+        raise Exception("Unexpected BSSID: " + res)
+
+def test_sigma_dut_ap_hs20(dev, apdev, params):
+    """sigma_dut controlled AP with Hotspot 2.0 parameters"""
+    logdir = os.path.join(params['logdir'],
+                          "sigma_dut_ap_hs20.sigma-hostapd")
+    with HWSimRadio() as (radio, iface):
+        sigma = start_sigma_dut(iface, hostapd_logdir=logdir, debug=True)
+        try:
+            sigma_dut_cmd_check("ap_reset_default,NAME,AP,program,HS2-R3")
+            sigma_dut_cmd_check("ap_set_wireless,NAME,AP,WLAN_TAG,1,CHANNEL,1,SSID,test-hs20,MODE,11ng")
+            sigma_dut_cmd_check("ap_set_radius,NAME,AP,WLAN_TAG,1,IPADDR,127.0.0.1,PORT,1812,PASSWORD,radius")
+            sigma_dut_cmd_check("ap_set_security,NAME,AP,WLAN_TAG,1,KEYMGNT,WPA2-ENT")
+            sigma_dut_cmd_check("ap_set_hs2,NAME,AP,WLAN_TAG,1,HESSID,02:12:34:56:78:9a,NAI_REALM_LIST,1,OPER_NAME,1")
+            sigma_dut_cmd_check("ap_set_hs2,NAME,AP,WLAN_TAG,1,OSU_SERVER_URI,https://example.com/ https://example.org/,OSU_SSID,test-osu,OSU_METHOD,SOAP SOAP,OSU_PROVIDER_LIST,10,OSU_PROVIDER_NAI_LIST,4")
+            sigma_dut_cmd_check("ap_set_hs2,NAME,AP,WLAN_TAG,1,NET_AUTH_TYPE,2")
+            sigma_dut_cmd_check("ap_set_hs2,NAME,AP,WLAN_TAG,1,VENUE_NAME,1")
+            sigma_dut_cmd_check("ap_set_hs2,NAME,AP,WLAN_TAG,1,DOMAIN_LIST,example.com")
+            sigma_dut_cmd_check("ap_set_hs2,NAME,AP,WLAN_TAG,1,OPERATOR_ICON_METADATA,1")
+            sigma_dut_cmd_check("ap_set_wireless,NAME,AP,WLAN_TAG,2,CHANNEL,1,SSID,test-osu,MODE,11ng")
+            sigma_dut_cmd_check("ap_set_security,NAME,AP,WLAN_TAG,2,KEYMGNT,NONE")
+            sigma_dut_cmd_check("ap_set_hs2,NAME,AP,WLAN_TAG,2,OSU,1")
+            sigma_dut_cmd_check("ap_config_commit,NAME,AP")
+
+            with open("/tmp/sigma_dut-ap.conf", "r") as f:
+                logger.debug("hostapd.conf from sigma_dut:\n" + f.read())
 
             sigma_dut_cmd_check("ap_reset_default")
         finally:

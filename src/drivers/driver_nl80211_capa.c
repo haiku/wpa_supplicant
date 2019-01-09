@@ -415,6 +415,19 @@ static void wiphy_info_ext_feature_flags(struct wiphy_info_data *info,
 	if (ext_feature_isset(ext_features, len,
 			      NL80211_EXT_FEATURE_DFS_OFFLOAD))
 		capa->flags |= WPA_DRIVER_FLAGS_DFS_OFFLOAD;
+
+#ifdef CONFIG_MBO
+	if (ext_feature_isset(ext_features, len,
+			      NL80211_EXT_FEATURE_FILS_MAX_CHANNEL_TIME) &&
+	    ext_feature_isset(ext_features, len,
+			      NL80211_EXT_FEATURE_ACCEPT_BCAST_PROBE_RESP) &&
+	    ext_feature_isset(ext_features, len,
+			      NL80211_EXT_FEATURE_OCE_PROBE_REQ_HIGH_TX_RATE) &&
+	    ext_feature_isset(
+		    ext_features, len,
+		    NL80211_EXT_FEATURE_OCE_PROBE_REQ_DEFERRAL_SUPPRESSION))
+		capa->flags |= WPA_DRIVER_FLAGS_OCE_STA;
+#endif /* CONFIG_MBO */
 }
 
 
@@ -804,6 +817,9 @@ static int wiphy_info_handler(struct nl_msg *msg, void *arg)
 	if (tb[NL80211_ATTR_MAX_CSA_COUNTERS])
 		capa->max_csa_counters =
 			nla_get_u8(tb[NL80211_ATTR_MAX_CSA_COUNTERS]);
+
+	if (tb[NL80211_ATTR_WIPHY_SELF_MANAGED_REG])
+		capa->flags |= WPA_DRIVER_FLAGS_SELF_MANAGED_REGULATORY;
 
 	return NL_SKIP;
 }
@@ -1905,6 +1921,13 @@ static int nl80211_set_regulatory_flags(struct wpa_driver_nl80211_data *drv,
 		return -ENOMEM;
 
 	nl80211_cmd(drv, msg, 0, NL80211_CMD_GET_REG);
+	if (drv->capa.flags & WPA_DRIVER_FLAGS_SELF_MANAGED_REGULATORY) {
+		if (nla_put_u32(msg, NL80211_ATTR_WIPHY, drv->wiphy_idx)) {
+			nlmsg_free(msg);
+			return -1;
+		}
+	}
+
 	return send_and_recv_msgs(drv, msg, nl80211_get_reg, results);
 }
 

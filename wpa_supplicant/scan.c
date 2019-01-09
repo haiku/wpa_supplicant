@@ -455,6 +455,33 @@ static void wpas_add_interworking_elements(struct wpa_supplicant *wpa_s,
 #endif /* CONFIG_INTERWORKING */
 
 
+#ifdef CONFIG_MBO
+static void wpas_fils_req_param_add_max_channel(struct wpa_supplicant *wpa_s,
+						struct wpabuf **ie)
+{
+	if (wpabuf_resize(ie, 5)) {
+		wpa_printf(MSG_DEBUG,
+			   "Failed to allocate space for FILS Request Parameters element");
+		return;
+	}
+
+	/* FILS Request Parameters element */
+	wpabuf_put_u8(*ie, WLAN_EID_EXTENSION);
+	wpabuf_put_u8(*ie, 3); /* FILS Request attribute length */
+	wpabuf_put_u8(*ie, WLAN_EID_EXT_FILS_REQ_PARAMS);
+	/* Parameter control bitmap */
+	wpabuf_put_u8(*ie, 0);
+	/* Max Channel Time field - contains the value of MaxChannelTime
+	 * parameter of the MLME-SCAN.request primitive represented in units of
+	 * TUs, as an unsigned integer. A Max Channel Time field value of 255
+	 * is used to indicate any duration of more than 254 TUs, or an
+	 * unspecified or unknown duration. (IEEE Std 802.11ai-2016, 9.4.2.178)
+	 */
+	wpabuf_put_u8(*ie, 255);
+}
+#endif /* CONFIG_MBO */
+
+
 void wpa_supplicant_set_default_scan_ies(struct wpa_supplicant *wpa_s)
 {
 	struct wpabuf *default_ies = NULL;
@@ -476,6 +503,8 @@ void wpa_supplicant_set_default_scan_ies(struct wpa_supplicant *wpa_s)
 		wpabuf_put_data(default_ies, ext_capab, ext_capab_len);
 
 #ifdef CONFIG_MBO
+	if (wpa_s->enable_oce & OCE_STA)
+		wpas_fils_req_param_add_max_channel(wpa_s, &default_ies);
 	/* Send MBO and OCE capabilities */
 	if (wpabuf_resize(&default_ies, 12) == 0)
 		wpas_mbo_scan_ie(wpa_s, default_ies);
@@ -516,6 +545,11 @@ static struct wpabuf * wpa_supplicant_extra_ies(struct wpa_supplicant *wpa_s)
 	    wpabuf_resize(&extra_ie, 100) == 0)
 		wpas_add_interworking_elements(wpa_s, extra_ie);
 #endif /* CONFIG_INTERWORKING */
+
+#ifdef CONFIG_MBO
+	if (wpa_s->enable_oce & OCE_STA)
+		wpas_fils_req_param_add_max_channel(wpa_s, &extra_ie);
+#endif /* CONFIG_MBO */
 
 #ifdef CONFIG_WPS
 	wps = wpas_wps_in_use(wpa_s, &req_type);
@@ -643,6 +677,87 @@ static void wpa_setband_scan_freqs(struct wpa_supplicant *wpa_s,
 }
 
 
+static void wpa_add_scan_ssid(struct wpa_supplicant *wpa_s,
+			      struct wpa_driver_scan_params *params,
+			      size_t max_ssids, const u8 *ssid, size_t ssid_len)
+{
+	unsigned int j;
+
+	for (j = 0; j < params->num_ssids; j++) {
+		if (params->ssids[j].ssid_len == ssid_len &&
+		    params->ssids[j].ssid &&
+		    os_memcmp(params->ssids[j].ssid, ssid, ssid_len) == 0)
+			return; /* already in the list */
+	}
+
+	if (params->num_ssids + 1 > max_ssids) {
+		wpa_printf(MSG_DEBUG, "Over max scan SSIDs for manual request");
+		return;
+	}
+
+	wpa_printf(MSG_DEBUG, "Scan SSID (manual request): %s",
+		   wpa_ssid_txt(ssid, ssid_len));
+
+	params->ssids[params->num_ssids].ssid = ssid;
+	params->ssids[params->num_ssids].ssid_len = ssid_len;
+	params->num_ssids++;
+}
+
+
+static void wpa_add_owe_scan_ssid(struct wpa_supplicant *wpa_s,
+				  struct wpa_driver_scan_params *params,
+				  struct wpa_ssid *ssid, size_t max_ssids)
+{
+#ifdef CONFIG_OWE
+	struct wpa_bss *bss;
+
+	if (!(ssid->key_mgmt & WPA_KEY_MGMT_OWE))
+		return;
+
+	wpa_printf(MSG_DEBUG, "OWE: Look for transition mode AP. ssid=%s",
+		   wpa_ssid_txt(ssid->ssid, ssid->ssid_len));
+
+	dl_list_for_each(bss, &wpa_s->bss, struct wpa_bss, list) {
+		const u8 *owe, *pos, *end;
+		const u8 *owe_ssid;
+		size_t owe_ssid_len;
+
+		if (bss->ssid_len != ssid->ssid_len ||
+		    os_memcmp(bss->ssid, ssid->ssid, ssid->ssid_len) != 0)
+			continue;
+
+		owe = wpa_bss_get_vendor_ie(bss, OWE_IE_VENDOR_TYPE);
+		if (!owe || owe[1] < 4)
+			continue;
+
+		pos = owe + 6;
+		end = owe + 2 + owe[1];
+
+		/* Must include BSSID and ssid_len */
+		if (end - pos < ETH_ALEN + 1)
+			return;
+
+		/* Skip BSSID */
+		pos += ETH_ALEN;
+		owe_ssid_len = *pos++;
+		owe_ssid = pos;
+
+		if ((size_t) (end - pos) < owe_ssid_len ||
+		    owe_ssid_len > SSID_MAX_LEN)
+			return;
+
+		wpa_printf(MSG_DEBUG,
+			   "OWE: scan_ssids: transition mode OWE ssid=%s",
+			   wpa_ssid_txt(owe_ssid, owe_ssid_len));
+
+		wpa_add_scan_ssid(wpa_s, params, max_ssids,
+				  owe_ssid, owe_ssid_len);
+		return;
+	}
+#endif /* CONFIG_OWE */
+}
+
+
 static void wpa_set_scan_ssids(struct wpa_supplicant *wpa_s,
 			       struct wpa_driver_scan_params *params,
 			       size_t max_ssids)
@@ -657,33 +772,17 @@ static void wpa_set_scan_ssids(struct wpa_supplicant *wpa_s,
 	max_ssids = max_ssids > 1 ? max_ssids - 1 : max_ssids;
 
 	for (i = 0; i < wpa_s->scan_id_count; i++) {
-		unsigned int j;
-
 		ssid = wpa_config_get_network(wpa_s->conf, wpa_s->scan_id[i]);
-		if (!ssid || !ssid->scan_ssid)
+		if (!ssid)
 			continue;
-
-		for (j = 0; j < params->num_ssids; j++) {
-			if (params->ssids[j].ssid_len == ssid->ssid_len &&
-			    params->ssids[j].ssid &&
-			    os_memcmp(params->ssids[j].ssid, ssid->ssid,
-				      ssid->ssid_len) == 0)
-				break;
-		}
-		if (j < params->num_ssids)
-			continue; /* already in the list */
-
-		if (params->num_ssids + 1 > max_ssids) {
-			wpa_printf(MSG_DEBUG,
-				   "Over max scan SSIDs for manual request");
-			break;
-		}
-
-		wpa_printf(MSG_DEBUG, "Scan SSID (manual request): %s",
-			   wpa_ssid_txt(ssid->ssid, ssid->ssid_len));
-		params->ssids[params->num_ssids].ssid = ssid->ssid;
-		params->ssids[params->num_ssids].ssid_len = ssid->ssid_len;
-		params->num_ssids++;
+		if (ssid->scan_ssid)
+			wpa_add_scan_ssid(wpa_s, params, max_ssids,
+					  ssid->ssid, ssid->ssid_len);
+		/*
+		 * Also add the SSID of the OWE BSS, to allow discovery of
+		 * transition mode APs more quickly.
+		 */
+		wpa_add_owe_scan_ssid(wpa_s, params, ssid, max_ssids);
 	}
 
 	wpa_s->scan_id_count = 0;
@@ -950,6 +1049,17 @@ static void wpa_supplicant_scan(void *eloop_ctx, void *timeout_ctx)
 				if (params.num_ssids + 1 >= max_ssids)
 					break;
 			}
+
+			if (!wpas_network_disabled(wpa_s, ssid)) {
+				/*
+				 * Also add the SSID of the OWE BSS, to allow
+				 * discovery of transition mode APs more
+				 * quickly.
+				 */
+				wpa_add_owe_scan_ssid(wpa_s, &params, ssid,
+						      max_ssids);
+			}
+
 			ssid = ssid->next;
 			if (ssid == start)
 				break;
@@ -1076,6 +1186,11 @@ ssid_list_set:
 			}
 		}
 	}
+
+#ifdef CONFIG_MBO
+	if (wpa_s->enable_oce & OCE_STA)
+		params.oce_scan = 1;
+#endif /* CONFIG_MBO */
 
 	params.filter_ssids = wpa_supplicant_build_filter_ssids(
 		wpa_s->conf, &params.num_filter_ssids);
@@ -1485,6 +1600,11 @@ int wpa_supplicant_req_sched_scan(struct wpa_supplicant *wpa_s)
 			"Optimize scan based on conf->freq_list");
 		int_array_concat(&params.freqs, wpa_s->conf->freq_list);
 	}
+
+#ifdef CONFIG_MBO
+	if (wpa_s->enable_oce & OCE_STA)
+		params.oce_scan = 1;
+#endif /* CONFIG_MBO */
 
 	scan_params = &params;
 
@@ -2401,6 +2521,7 @@ wpa_scan_clone_params(const struct wpa_driver_scan_params *src)
 	params->low_priority = src->low_priority;
 	params->duration = src->duration;
 	params->duration_mandatory = src->duration_mandatory;
+	params->oce_scan = src->oce_scan;
 
 	if (src->sched_scan_plans_num > 0) {
 		params->sched_scan_plans =

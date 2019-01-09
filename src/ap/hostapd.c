@@ -78,6 +78,16 @@ int hostapd_for_each_interface(struct hapd_interfaces *interfaces,
 }
 
 
+void hostapd_reconfig_encryption(struct hostapd_data *hapd)
+{
+	if (hapd->wpa_auth)
+		return;
+
+	hostapd_set_privacy(hapd, 0);
+	hostapd_setup_encryption(hapd->conf->iface, hapd);
+}
+
+
 static void hostapd_reload_bss(struct hostapd_data *hapd)
 {
 	struct hostapd_ssid *ssid;
@@ -166,8 +176,27 @@ static void hostapd_clear_old(struct hostapd_iface *iface)
 }
 
 
+static int hostapd_iface_conf_changed(struct hostapd_config *newconf,
+				      struct hostapd_config *oldconf)
+{
+	size_t i;
+
+	if (newconf->num_bss != oldconf->num_bss)
+		return 1;
+
+	for (i = 0; i < newconf->num_bss; i++) {
+		if (os_strcmp(newconf->bss[i]->iface,
+			      oldconf->bss[i]->iface) != 0)
+			return 1;
+	}
+
+	return 0;
+}
+
+
 int hostapd_reload_config(struct hostapd_iface *iface)
 {
+	struct hapd_interfaces *interfaces = iface->interfaces;
 	struct hostapd_data *hapd = iface->bss[0];
 	struct hostapd_config *newconf, *oldconf;
 	size_t j;
@@ -190,6 +219,35 @@ int hostapd_reload_config(struct hostapd_iface *iface)
 	hostapd_clear_old(iface);
 
 	oldconf = hapd->iconf;
+	if (hostapd_iface_conf_changed(newconf, oldconf)) {
+		char *fname;
+		int res;
+
+		wpa_printf(MSG_DEBUG,
+			   "Configuration changes include interface/BSS modification - force full disable+enable sequence");
+		fname = os_strdup(iface->config_fname);
+		if (!fname) {
+			hostapd_config_free(newconf);
+			return -1;
+		}
+		hostapd_remove_iface(interfaces, hapd->conf->iface);
+		iface = hostapd_init(interfaces, fname);
+		os_free(fname);
+		hostapd_config_free(newconf);
+		if (!iface) {
+			wpa_printf(MSG_ERROR,
+				   "Failed to initialize interface on config reload");
+			return -1;
+		}
+		iface->interfaces = interfaces;
+		interfaces->iface[interfaces->count] = iface;
+		interfaces->count++;
+		res = hostapd_enable_iface(iface);
+		if (res < 0)
+			wpa_printf(MSG_ERROR,
+				   "Failed to enable interface on config reload");
+		return res;
+	}
 	iface->conf = newconf;
 
 	for (j = 0; j < iface->num_bss; j++) {
@@ -2610,6 +2668,11 @@ int hostapd_disable_iface(struct hostapd_iface *hapd_iface)
 		!!(hapd_iface->drv_flags &
 		   WPA_DRIVER_FLAGS_AP_TEARDOWN_SUPPORT);
 
+#ifdef NEED_AP_MLME
+	for (j = 0; j < hapd_iface->num_bss; j++)
+		hostapd_cleanup_cs_params(hapd_iface->bss[j]);
+#endif /* NEED_AP_MLME */
+
 	/* same as hostapd_interface_deinit without deinitializing ctrl-iface */
 	for (j = 0; j < hapd_iface->num_bss; j++) {
 		struct hostapd_data *hapd = hapd_iface->bss[j];
@@ -2667,7 +2730,7 @@ hostapd_config_alloc(struct hapd_interfaces *interfaces, const char *ifname,
 	if (conf == NULL) {
 		 wpa_printf(MSG_ERROR, "%s: Failed to allocate memory for "
 				"configuration", __func__);
-		return NULL;
+		 return NULL;
 	}
 
 	if (driver) {
@@ -3418,7 +3481,6 @@ hostapd_switch_channel_fallback(struct hostapd_iface *iface,
 				const struct hostapd_freq_params *freq_params)
 {
 	int vht_seg0_idx = 0, vht_seg1_idx = 0, vht_bw = VHT_CHANWIDTH_USE_HT;
-	unsigned int i;
 
 	wpa_printf(MSG_DEBUG, "Restarting all CSA-related BSSes");
 
@@ -3460,10 +3522,8 @@ hostapd_switch_channel_fallback(struct hostapd_iface *iface,
 	/*
 	 * cs_params must not be cleared earlier because the freq_params
 	 * argument may actually point to one of these.
+	 * These params will be cleared during interface disable below.
 	 */
-	for (i = 0; i < iface->num_bss; i++)
-		hostapd_cleanup_cs_params(iface->bss[i]);
-
 	hostapd_disable_iface(iface);
 	hostapd_enable_iface(iface);
 }

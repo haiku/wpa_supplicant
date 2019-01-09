@@ -27,7 +27,7 @@ def check_suite_b_tls_lib(dev, dhe=False, level128=False):
     if not tls.startswith("OpenSSL"):
         raise HwsimSkip("TLS library not supported for Suite B: " + tls)
     supported = False
-    for ver in [ '1.0.2', '1.1.0' ]:
+    for ver in [ '1.0.2', '1.1.0', '1.1.1' ]:
         if "build=OpenSSL " + ver in tls and "run=OpenSSL " + ver in tls:
             supported = True
             break
@@ -93,6 +93,17 @@ def test_suite_b(dev, apdev):
     conf = hapd.get_config()
     if conf['key_mgmt'] != 'WPA-EAP-SUITE-B':
         raise Exception("Unexpected config key_mgmt: " + conf['key_mgmt'])
+
+    dev[0].request("DISCONNECT")
+    dev[0].wait_disconnected(timeout=20)
+    dev[0].dump_monitor()
+    dev[0].request("RECONNECT")
+    ev = dev[0].wait_event(["CTRL-EVENT-EAP-STARTED",
+                            "CTRL-EVENT-CONNECTED"], timeout=20)
+    if ev is None:
+        raise Exception("Roaming with the AP timed out (2)")
+    if "CTRL-EVENT-EAP-STARTED" in ev:
+        raise Exception("Unexpected EAP exchange (2)")
 
 def suite_b_as_params():
     params = {}
@@ -204,6 +215,17 @@ def test_suite_b_192(dev, apdev):
     conf = hapd.get_config()
     if conf['key_mgmt'] != 'WPA-EAP-SUITE-B-192':
         raise Exception("Unexpected config key_mgmt: " + conf['key_mgmt'])
+
+    dev[0].request("DISCONNECT")
+    dev[0].wait_disconnected(timeout=20)
+    dev[0].dump_monitor()
+    dev[0].request("RECONNECT")
+    ev = dev[0].wait_event(["CTRL-EVENT-EAP-STARTED",
+                            "CTRL-EVENT-CONNECTED"], timeout=20)
+    if ev is None:
+        raise Exception("Roaming with the AP timed out (2)")
+    if "CTRL-EVENT-EAP-STARTED" in ev:
+        raise Exception("Unexpected EAP exchange (2)")
 
 def test_suite_b_192_radius(dev, apdev):
     """WPA2/GCMP-256 (RADIUS) connection at Suite B 192-bit level"""

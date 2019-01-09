@@ -150,7 +150,7 @@ def test_ap_acl_deny(dev, apdev):
     params['ssid'] = ssid
     params['deny_mac_file'] = "hostapd.macaddr"
     hapd = hostapd.add_ap(apdev[0], params)
-    dev[0].scan_for_bss(apdev[0]['bssid'], freq="2412")
+    dev[0].scan_for_bss(apdev[0]['bssid'], freq="2412", passive=True)
     dev[0].connect(ssid, key_mgmt="NONE", scan_freq="2412", wait_connect=False)
     dev[1].scan_for_bss(apdev[0]['bssid'], freq="2412")
     dev[1].connect(ssid, key_mgmt="NONE", scan_freq="2412")
@@ -514,6 +514,10 @@ def test_ap_tx_queue_params_invalid(dev, apdev):
     params['wmm_ac_bk_acm'] = "0"
 
     hapd = hostapd.add_ap(apdev[0], params)
+
+    # Valid WMM change
+    hapd.set("wmm_ac_be_cwmin", "3")
+
     # "Invalid TX queue cwMin/cwMax values. cwMin(7) greater than cwMax(3)"
     if "FAIL" not in hapd.request('SET tx_queue_data2_cwmax 3'):
         raise Exception("TX cwMax < cwMin accepted")

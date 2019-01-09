@@ -751,6 +751,7 @@ int wpa_validate_wpa_ie(struct wpa_authenticator *wpa_auth,
 
 #ifdef CONFIG_SAE
 	if (wpa_auth->conf.ieee80211w == MGMT_FRAME_PROTECTION_OPTIONAL &&
+	    wpa_auth->conf.sae_require_mfp &&
 	    wpa_key_mgmt_sae(sm->wpa_key_mgmt) &&
 	    !(data.capabilities & WPA_CAPABILITY_MFPC)) {
 		wpa_printf(MSG_DEBUG,
@@ -1067,7 +1068,11 @@ u8 * wpa_auth_write_assoc_resp_owe(struct wpa_state_machine *sm,
 				   const u8 *req_ies, size_t req_ies_len)
 {
 	int res;
-	struct wpa_auth_config *conf = &sm->wpa_auth->conf;
+	struct wpa_auth_config *conf;
+
+	if (!sm)
+		return pos;
+	conf = &sm->wpa_auth->conf;
 
 #ifdef CONFIG_TESTING_OPTIONS
 	if (conf->own_ie_override_len) {
@@ -1081,7 +1086,7 @@ u8 * wpa_auth_write_assoc_resp_owe(struct wpa_state_machine *sm,
 	}
 #endif /* CONFIG_TESTING_OPTIONS */
 
-	res = wpa_write_rsn_ie(&sm->wpa_auth->conf, pos, max_len,
+	res = wpa_write_rsn_ie(conf, pos, max_len,
 			       sm->pmksa ? sm->pmksa->pmkid : NULL);
 	if (res < 0)
 		return pos;
