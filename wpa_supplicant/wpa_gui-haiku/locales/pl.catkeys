@@ -1,7 +1,7 @@
 1	Polish	application/x-vnd.malinen-wpa_supplicant	1766492621
 Cancel	wpa_supplicant		Anuluj
 Password:	wpa_supplicant		Hasło:
-Open	wpa_supplicant	Open network	Otwarta
+Open	wpa_supplicant	Open network	brak
 Store this configuration	wpa_supplicant		Zachowaj tę konfigurację
 WEP	wpa_supplicant		WEP
 Connect to a WiFi network	wpa_supplicant		Połącz z siecią WiFi
