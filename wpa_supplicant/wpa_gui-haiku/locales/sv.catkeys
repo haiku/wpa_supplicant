@@ -1,0 +1,11 @@
+1	Swedish	application/x-vnd.malinen-wpa_supplicant	1766492621
+Cancel	wpa_supplicant		Avbryt
+Password:	wpa_supplicant		Lösenord:
+Open	wpa_supplicant	Open network	Öppna
+Store this configuration	wpa_supplicant		Spara den här konfigurationen
+WEP	wpa_supplicant		WEP
+Connect to a WiFi network	wpa_supplicant		Anslut till WiFi-nätverk
+Network name:	wpa_supplicant		Nätverksnamn:
+Authentication:	wpa_supplicant		Autentisering:
+WPA/WPA2	wpa_supplicant		WPA/WPA2
+OK	wpa_supplicant		OK

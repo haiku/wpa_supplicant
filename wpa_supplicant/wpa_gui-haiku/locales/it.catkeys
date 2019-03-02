@@ -1,0 +1,11 @@
+1	Italian	application/x-vnd.malinen-wpa_supplicant	1766492621
+Cancel	wpa_supplicant		Cancella
+Password:	wpa_supplicant		Password:
+Open	wpa_supplicant	Open network	Apri
+Store this configuration	wpa_supplicant		Salva questa configurazione
+WEP	wpa_supplicant		WEP
+Connect to a WiFi network	wpa_supplicant		Connetti a una rete WiFi
+Network name:	wpa_supplicant		Nome rete:
+Authentication:	wpa_supplicant		Autenticazione:
+WPA/WPA2	wpa_supplicant		WPA/WPA2
+OK	wpa_supplicant		OK

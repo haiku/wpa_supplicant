@@ -1,0 +1,11 @@
+1	French	application/x-vnd.malinen-wpa_supplicant	1766492621
+Cancel	wpa_supplicant		Annuler
+Password:	wpa_supplicant		Mot de passe :
+Open	wpa_supplicant	Open network	Ouvert
+Store this configuration	wpa_supplicant		Enregistrer cette configuration
+WEP	wpa_supplicant		WEP
+Connect to a WiFi network	wpa_supplicant		Se connecter à un réseau WiFi
+Network name:	wpa_supplicant		Nom du réseau :
+Authentication:	wpa_supplicant		Authentification :
+WPA/WPA2	wpa_supplicant		WPA/WPA2
+OK	wpa_supplicant		OK

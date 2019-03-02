@@ -1,0 +1,11 @@
+1	Romanian	application/x-vnd.malinen-wpa_supplicant	1766492621
+Cancel	wpa_supplicant		Anulează
+Password:	wpa_supplicant		Parolă:
+Open	wpa_supplicant	Open network	Deschide
+Store this configuration	wpa_supplicant		Stochează această configurare
+WEP	wpa_supplicant		WEP
+Connect to a WiFi network	wpa_supplicant		Conectare la o rețea WiFi
+Network name:	wpa_supplicant		Nume de rețea:
+Authentication:	wpa_supplicant		Autentificare:
+WPA/WPA2	wpa_supplicant		WPA/WPA2
+OK	wpa_supplicant		OK

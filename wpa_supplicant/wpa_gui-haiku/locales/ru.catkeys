@@ -1,0 +1,11 @@
+1	Russian	application/x-vnd.malinen-wpa_supplicant	1766492621
+Cancel	wpa_supplicant		Отмена
+Password:	wpa_supplicant		Пароль:
+Open	wpa_supplicant	Open network	Открыть
+Store this configuration	wpa_supplicant		Сохранить эту конфигурацию
+WEP	wpa_supplicant		WEP
+Connect to a WiFi network	wpa_supplicant		Подключиться к WiFi сети
+Network name:	wpa_supplicant		Имя сети:
+Authentication:	wpa_supplicant		Аутентификация:
+WPA/WPA2	wpa_supplicant		WPA/WPA2
+OK	wpa_supplicant		OK
