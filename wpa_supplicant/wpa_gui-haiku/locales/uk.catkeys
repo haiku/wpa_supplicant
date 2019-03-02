@@ -1,0 +1,11 @@
+1	Ukrainian	application/x-vnd.malinen-wpa_supplicant	1766492621
+Cancel	wpa_supplicant		Скасувати
+Password:	wpa_supplicant		Пароль:
+Open	wpa_supplicant	Open network	Відкрити
+Store this configuration	wpa_supplicant		Зберегти цю конфігурацію
+WEP	wpa_supplicant		WEP
+Connect to a WiFi network	wpa_supplicant		Підключитися до мережі WiFi
+Network name:	wpa_supplicant		Назва мережі:
+Authentication:	wpa_supplicant		Автентифікація:
+WPA/WPA2	wpa_supplicant		WPA/WPA2
+OK	wpa_supplicant		OK
