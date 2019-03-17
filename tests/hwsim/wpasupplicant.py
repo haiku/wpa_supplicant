@@ -1,5 +1,5 @@
 # Python class for controlling wpa_supplicant
-# Copyright (c) 2013-2014, Jouni Malinen <j@w1.fi>
+# Copyright (c) 2013-2019, Jouni Malinen <j@w1.fi>
 #
 # This software may be distributed under the terms of the BSD license.
 # See README for more details.
@@ -240,7 +240,7 @@ class WpaSupplicant:
             iter = iter + 1
         if iter == 60:
             logger.error(self.ifname + ": Driver scan state did not clear")
-            print "Trying to clear cfg80211/mac80211 scan state"
+            print("Trying to clear cfg80211/mac80211 scan state")
             status, buf = self.host.execute(["ifconfig", self.ifname, "down"])
             if status != 0:
                 logger.info("ifconfig failed: " + buf)
@@ -438,7 +438,7 @@ class WpaSupplicant:
             try:
                 [name,value] = l.split('=', 1)
                 vals[name] = value
-            except ValueError, e:
+            except ValueError as e:
                 logger.info(self.ifname + ": Ignore unexpected STATUS line: " + l)
         return vals
 
@@ -507,7 +507,7 @@ class WpaSupplicant:
             try:
                 [name,value] = l.split('=', 1)
                 vals[name] = value
-            except ValueError, e:
+            except ValueError as e:
                 logger.info(self.ifname + ": Ignore unexpected MIB line: " + l)
         return vals
 
@@ -646,7 +646,7 @@ class WpaSupplicant:
             res['passphrase'] = p.group(1)
         res['go_dev_addr'] = s[7]
 
-        if len(s) > 8 and len(s[8]) > 0:
+        if len(s) > 8 and len(s[8]) > 0 and "[PERSISTENT]" not in s[8]:
             res['ip_addr'] = s[8]
         if len(s) > 9:
             res['ip_mask'] = s[9]
@@ -764,12 +764,12 @@ class WpaSupplicant:
             return self.group_form_result(ev, expect_failure, go_neg_res)
         raise Exception("P2P_CONNECT failed")
 
-    def wait_event(self, events, timeout=10):
+    def _wait_event(self, mon, pfx, events, timeout):
         start = os.times()[4]
         while True:
-            while self.mon.pending():
-                ev = self.mon.recv()
-                logger.debug(self.dbg + ": " + ev)
+            while mon.pending():
+                ev = mon.recv()
+                logger.debug(self.dbg + pfx + ev)
                 for event in events:
                     if event in ev:
                         return ev
@@ -777,29 +777,18 @@ class WpaSupplicant:
             remaining = start + timeout - now
             if remaining <= 0:
                 break
-            if not self.mon.pending(timeout=remaining):
+            if not mon.pending(timeout=remaining):
                 break
         return None
 
+    def wait_event(self, events, timeout=10):
+        return self._wait_event(self.mon, ": ", events, timeout)
+
     def wait_global_event(self, events, timeout):
         if self.global_iface is None:
-            self.wait_event(events, timeout)
-        else:
-            start = os.times()[4]
-            while True:
-                while self.global_mon.pending():
-                    ev = self.global_mon.recv()
-                    logger.debug(self.global_dbg + self.ifname + "(global): " + ev)
-                    for event in events:
-                        if event in ev:
-                            return ev
-                now = os.times()[4]
-                remaining = start + timeout - now
-                if remaining <= 0:
-                    break
-                if not self.global_mon.pending(timeout=remaining):
-                    break
-        return None
+            return self.wait_event(events, timeout)
+        return self._wait_event(self.global_mon, "(global): ",
+                                events, timeout)
 
     def wait_group_event(self, events, timeout=10):
         if self.group_ifname and self.group_ifname != self.ifname:
@@ -958,7 +947,7 @@ class WpaSupplicant:
             "mean_data_rate": 1500,
         }
         cmd = "WMM_AC_ADDTS %s tsid=%d up=%d" % (direction, tsid, up)
-        for (key, value) in params.iteritems():
+        for (key, value) in params.items():
             cmd += " %s=%d" % (key, value)
         if extra:
             cmd += " " + extra
@@ -1031,7 +1020,8 @@ class WpaSupplicant:
                        "dpp_csign", "dpp_csign_expiry",
                        "dpp_netaccesskey", "dpp_netaccesskey_expiry",
                        "group_mgmt", "owe_group",
-                       "roaming_consortium_selection" ]
+                       "roaming_consortium_selection", "ocv",
+                       "multi_ap_backhaul_sta", "rx_stbc", "tx_stbc" ]
         for field in not_quoted:
             if field in kwargs and kwargs[field]:
                 self.set_network(id, field, kwargs[field])
@@ -1105,17 +1095,26 @@ class WpaSupplicant:
             if len(res.splitlines()) > 1:
                 logger.info("flush_scan_cache: Could not clear all BSS entries. These remain:\n" + res)
 
-    def roam(self, bssid, fail_test=False):
+    def roam(self, bssid, fail_test=False, assoc_reject_ok=False):
         self.dump_monitor()
         if "OK" not in self.request("ROAM " + bssid):
             raise Exception("ROAM failed")
         if fail_test:
-            ev = self.wait_event(["CTRL-EVENT-CONNECTED"], timeout=1)
-            if ev is not None:
+            if assoc_reject_ok:
+                ev = self.wait_event(["CTRL-EVENT-CONNECTED",
+                                      "CTRL-EVENT-ASSOC-REJECT"], timeout=1)
+            else:
+                ev = self.wait_event(["CTRL-EVENT-CONNECTED"], timeout=1)
+            if ev is not None and "CTRL-EVENT-ASSOC-REJECT" not in ev:
                 raise Exception("Unexpected connection")
             self.dump_monitor()
             return
-        self.wait_connected(timeout=10, error="Roaming with the AP timed out")
+        ev = self.wait_event(["CTRL-EVENT-CONNECTED",
+                              "CTRL-EVENT-ASSOC-REJECT"], timeout=10)
+        if ev is None:
+            raise Exception("Roaming with the AP timed out")
+        if "CTRL-EVENT-ASSOC-REJECT" in ev:
+            raise Exception("Roaming association rejected")
         self.dump_monitor()
 
     def roam_over_ds(self, bssid, fail_test=False):
@@ -1128,7 +1127,12 @@ class WpaSupplicant:
                 raise Exception("Unexpected connection")
             self.dump_monitor()
             return
-        self.wait_connected(timeout=10, error="Roaming with the AP timed out")
+        ev = self.wait_event(["CTRL-EVENT-CONNECTED",
+                              "CTRL-EVENT-ASSOC-REJECT"], timeout=10)
+        if ev is None:
+            raise Exception("Roaming with the AP timed out")
+        if "CTRL-EVENT-ASSOC-REJECT" in ev:
+            raise Exception("Roaming association rejected")
         self.dump_monitor()
 
     def wps_reg(self, bssid, pin, new_ssid=None, key_mgmt=None, cipher=None,
@@ -1318,3 +1322,14 @@ class WpaSupplicant:
 
     def note(self, txt):
         self.request("NOTE " + txt)
+
+    def wait_regdom(self, country_ie=False):
+        for i in range(5):
+            ev = self.wait_event(["CTRL-EVENT-REGDOM-CHANGE"], timeout=1)
+            if ev is None:
+                break
+            if country_ie:
+                if "init=COUNTRY_IE" in ev:
+                    break
+            else:
+                break

@@ -21,12 +21,12 @@ import os
  TYPE_WWAN,
  TYPE_GPS,
  TYPE_FM,
- TYPE_NFC) = range(9)
+ TYPE_NFC) = list(range(9))
 
 (_OP_ADD,
  _OP_DEL,
  _OP_CHANGE,
- _OP_CHANGE_ALL) = range(4)
+ _OP_CHANGE_ALL) = list(range(4))
 
 _type_names = {
     TYPE_ALL: "all",
@@ -111,7 +111,7 @@ class RFKill(object):
     @classmethod
     def block_all(cls, t=TYPE_ALL):
         rfk = open('/dev/rfkill', 'w')
-        print rfk
+        print(rfk)
         s = struct.pack(_event_struct, 0, t, _OP_CHANGE_ALL, 1, 0)
         rfk.write(s)
         rfk.close()
@@ -145,6 +145,6 @@ class RFKill(object):
 
 if __name__ == "__main__":
     for r, s, h in RFKill.list():
-        print "%d: %s: %s" % (r.idx, r.name, r.type_name)
-        print "\tSoft blocked: %s" % ("yes" if s else "no")
-        print "\tHard blocked: %s" % ("yes" if h else "no")
+        print("%d: %s: %s" % (r.idx, r.name, r.type_name))
+        print("\tSoft blocked: %s" % ("yes" if s else "no"))
+        print("\tHard blocked: %s" % ("yes" if h else "no"))

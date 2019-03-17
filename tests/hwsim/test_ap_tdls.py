@@ -359,6 +359,22 @@ def test_ap_wpa2_tdls_responder_teardown(dev, apdev):
     setup_tdls(dev[0], dev[1], hapd)
     teardown_tdls(dev[0], dev[1], hapd, responder=True)
 
+def tdls_clear_reg(hapd, dev):
+    if hapd:
+        hapd.request("DISABLE")
+    dev[0].request("DISCONNECT")
+    dev[0].request("ABORT_SCAN")
+    dev[1].request("DISCONNECT")
+    dev[1].request("ABORT_SCAN")
+    dev[0].wait_event(["CTRL-EVENT-DISCONNECTED"], timeout=0.5)
+    dev[0].dump_monitor()
+    dev[1].wait_event(["CTRL-EVENT-DISCONNECTED"], timeout=0.5)
+    dev[1].dump_monitor()
+    subprocess.call(['iw', 'reg', 'set', '00'])
+    dev[0].wait_event(["CTRL-EVENT-REGDOM-CHANGE"], timeout=0.5)
+    dev[0].flush_scan_cache()
+    dev[1].flush_scan_cache()
+
 def test_ap_open_tdls_vht(dev, apdev):
     """Open AP and two stations using TDLS"""
     params = { "ssid": "test-open",
@@ -381,13 +397,7 @@ def test_ap_open_tdls_vht(dev, apdev):
         setup_tdls(dev[1], dev[0], hapd)
         teardown_tdls(dev[1], dev[0], hapd, wildcard=True)
     finally:
-        dev[0].request("DISCONNECT")
-        dev[1].request("DISCONNECT")
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev[0].flush_scan_cache()
-        dev[1].flush_scan_cache()
+        tdls_clear_reg(hapd, dev)
 
 def test_ap_open_tdls_vht80(dev, apdev):
     """Open AP and two stations using TDLS with VHT 80"""
@@ -418,19 +428,13 @@ def test_ap_open_tdls_vht80(dev, apdev):
             res = cmd.stdout.read()
             cmd.stdout.close()
             logger.info("Station dump on dev[%d]:\n%s" % (i, res))
-    except Exception, e:
+    except Exception as e:
         if isinstance(e, Exception) and str(e) == "AP startup failed":
             if not vht_supported():
                 raise HwsimSkip("80/160 MHz channel not supported in regulatory information")
         raise
     finally:
-        dev[0].request("DISCONNECT")
-        dev[1].request("DISCONNECT")
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev[0].flush_scan_cache()
-        dev[1].flush_scan_cache()
+        tdls_clear_reg(hapd, dev)
 
 def test_ap_open_tdls_vht80plus80(dev, apdev):
     """Open AP and two stations using TDLS with VHT 80+80"""
@@ -468,19 +472,13 @@ def test_ap_open_tdls_vht80plus80(dev, apdev):
             res = cmd.stdout.read()
             cmd.stdout.close()
             logger.info("Station dump on dev[%d]:\n%s" % (i, res))
-    except Exception, e:
+    except Exception as e:
         if isinstance(e, Exception) and str(e) == "AP startup failed":
             if not vht_supported():
                 raise HwsimSkip("80/160 MHz channel not supported in regulatory information")
         raise
     finally:
-        dev[0].request("DISCONNECT")
-        dev[1].request("DISCONNECT")
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev[0].flush_scan_cache()
-        dev[1].flush_scan_cache()
+        tdls_clear_reg(hapd, dev)
 
 def test_ap_open_tdls_vht160(dev, apdev):
     """Open AP and two stations using TDLS with VHT 160"""
@@ -518,19 +516,13 @@ def test_ap_open_tdls_vht160(dev, apdev):
             res = cmd.stdout.read()
             cmd.stdout.close()
             logger.info("Station dump on dev[%d]:\n%s" % (i, res))
-    except Exception, e:
+    except Exception as e:
         if isinstance(e, Exception) and str(e) == "AP startup failed":
             if not vht_supported():
                 raise HwsimSkip("80/160 MHz channel not supported in regulatory information")
         raise
     finally:
-        dev[0].request("DISCONNECT")
-        dev[1].request("DISCONNECT")
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev[0].flush_scan_cache()
-        dev[1].flush_scan_cache()
+        tdls_clear_reg(hapd, dev)
 
 def test_tdls_chan_switch(dev, apdev):
     """Open AP and two stations using TDLS"""

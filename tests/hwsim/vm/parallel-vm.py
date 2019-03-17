@@ -1,11 +1,12 @@
 #!/usr/bin/env python2
 #
 # Parallel VM test case executor
-# Copyright (c) 2014-2015, Jouni Malinen <j@w1.fi>
+# Copyright (c) 2014-2018, Jouni Malinen <j@w1.fi>
 #
 # This software may be distributed under the terms of the BSD license.
 # See README for more details.
 
+from __future__ import print_function
 import curses
 import fcntl
 import logging
@@ -51,6 +52,8 @@ long_tests = [ "ap_roam_open",
                "dfs_radar",
                "dfs",
                "dfs_ht40_minus",
+               "dfs_etsi",
+               "ap_acs_dfs",
                "grpform_cred_ready_timeout",
                "hostapd_oom_wpa2_eap_connect",
                "wpas_ap_dfs",
@@ -372,7 +375,7 @@ def main():
     if args.long:
         extra_args += [ '--long' ]
     if args.codecov:
-        print "Code coverage - build separate binaries"
+        print("Code coverage - build separate binaries")
         logdir = os.path.join(dir, str(timestamp))
         os.makedirs(logdir)
         subprocess.check_call([os.path.join(scriptsdir, 'build-codecov.sh'),
@@ -425,7 +428,8 @@ def main():
 
     vm = {}
     for i in range(0, num_servers):
-        print("\rStarting virtual machine {}/{}".format(i + 1, num_servers)),
+        print("\rStarting virtual machine {}/{}".format(i + 1, num_servers),
+              end='')
         logger.info("Starting virtual machine {}/{}".format(i + 1, num_servers))
         cmd = [os.path.join(scriptsdir, 'vm-run.sh'), '--delay', str(i),
                '--timestamp', str(timestamp),
@@ -446,7 +450,7 @@ def main():
             fd = stream.fileno()
             fl = fcntl.fcntl(fd, fcntl.F_GETFL)
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
-    print
+    print('')
 
     curses.wrapper(show_progress)
 
@@ -457,26 +461,26 @@ def main():
     failed = get_failed(vm)
 
     if first_run_failures:
-        print "To re-run same failure sequence(s):"
+        print("To re-run same failure sequence(s):")
         for i in range(0, num_servers):
             if len(vm[i]['failed']) == 0:
                 continue
-            print "./vm-run.sh",
+            print("./vm-run.sh", end=' ')
             if args.long:
-                print "--long",
+                print("--long", end=' ')
             skip = len(vm[i]['fail_seq'])
             skip -= min(skip, 30)
             for t in vm[i]['fail_seq']:
                 if skip > 0:
                     skip -= 1
                     continue
-                print t,
-            print
-        print "Failed test cases:"
+                print(t, end=' ')
+            print('')
+        print("Failed test cases:")
         for f in first_run_failures:
-            print f,
+            print(f, end=' ')
             logger.info("Failed: " + f)
-        print
+        print('')
     double_failed = []
     for name in failed:
         double_failed.append(name)
@@ -485,21 +489,21 @@ def main():
     if not rerun_failures:
         pass
     elif failed and not double_failed:
-        print "All failed cases passed on retry"
+        print("All failed cases passed on retry")
         logger.info("All failed cases passed on retry")
     elif double_failed:
-        print "Failed even on retry:"
+        print("Failed even on retry:")
         for f in double_failed:
-            print f,
+            print(f, end=' ')
             logger.info("Failed on retry: " + f)
-        print
+        print('')
     res = "TOTAL={} PASS={} FAIL={} SKIP={}".format(total_started,
                                                     total_passed,
                                                     total_failed,
                                                     total_skipped)
     print(res)
     logger.info(res)
-    print "Logs: " + dir + '/' + str(timestamp)
+    print("Logs: " + dir + '/' + str(timestamp))
     logger.info("Logs: " + dir + '/' + str(timestamp))
 
     for i in range(0, num_servers):
@@ -509,11 +513,11 @@ def main():
         log = '{}/{}.srv.{}/console'.format(dir, timestamp, i + 1)
         with open(log, 'r') as f:
             if "Kernel panic" in f.read():
-                print "Kernel panic in " + log
+                print("Kernel panic in " + log)
                 logger.info("Kernel panic in " + log)
 
     if codecov:
-        print "Code coverage - preparing report"
+        print("Code coverage - preparing report")
         for i in range(num_servers):
             subprocess.check_call([os.path.join(scriptsdir,
                                                 'process-codecov.sh'),
@@ -521,7 +525,7 @@ def main():
                                    str(i)])
         subprocess.check_call([os.path.join(scriptsdir, 'combine-codecov.sh'),
                                logdir])
-        print "file://%s/index.html" % logdir
+        print("file://%s/index.html" % logdir)
         logger.info("Code coverage report: file://%s/index.html" % logdir)
 
     if double_failed or (failed and not rerun_failures):

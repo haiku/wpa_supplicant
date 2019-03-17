@@ -219,6 +219,7 @@ class FstLauncher:
         while len(self.cfgs_to_run) != 0:
             cfg = self.cfgs_to_run[0]
             self.remove_cfg(cfg)
+        fst_test_common.fst_clear_regdom()
 
     def kill_pid(self, pidfile, try_again=False):
         """Kills process by PID file"""
@@ -242,7 +243,7 @@ class FstLauncher:
                 try:
                     pid = int(pidtxt)
                     break
-                except Exception, e:
+                except Exception as e:
                     self.logger.debug("kill_pid: No valid PID found: %s" % str(e))
                     time.sleep(1)
             self.logger.debug("kill_pid %s --> pid %d" % (pidfile, pid))
@@ -256,7 +257,7 @@ class FstLauncher:
                     break
                 # Wait and check again
                 time.sleep(1)
-        except Exception, e:
+        except Exception as e:
             self.logger.debug("Didn't stop the pid=%d. Was it stopped already? (%s)" % (pid, str(e)))
 
 

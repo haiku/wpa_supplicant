@@ -101,6 +101,7 @@ def stop_two_ap_sta_pairs(ap1, ap2, sta1, sta2):
     sta2.stop()
     ap1.stop()
     ap2.stop()
+    fst_test_common.fst_clear_regdom()
 
 def connect_two_ap_sta_pairs(ap1, ap2, dev1, dev2, rsn=False):
     """Connects a pair of stations, each one to a separate AP"""
@@ -188,7 +189,7 @@ class FstDevice:
 
     def grequest(self, req):
         """Send request on the global control interface"""
-        raise Exception, "Virtual grequest() called!"
+        raise Exception("Virtual grequest() called!")
 
     def wait_gevent(self, events, timeout=None):
         """Wait for a list of events on the global interface"""
@@ -628,7 +629,7 @@ class FstAP (FstDevice):
             self.remove_all_sessions()
             try:
                 self.send_iface_detach_request(self.iface)
-            except Exception, e:
+            except Exception as e:
                 logger.info(str(e))
         self.reg_ctrl.stop()
         del self.global_instance

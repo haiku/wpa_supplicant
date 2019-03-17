@@ -2829,6 +2829,7 @@ def test_dpp_pkex_5ghz(dev, apdev):
         dev[0].request("SET country 00")
         dev[1].request("SET country 00")
         subprocess.call(['iw', 'reg', 'set', '00'])
+        time.sleep(0.1)
 
 def run_dpp_pkex_5ghz(dev, apdev):
     check_dpp_capab(dev[0])
@@ -3261,11 +3262,15 @@ def test_dpp_pkex_no_responder(dev, apdev):
     if "FAIL" in res:
         raise Exception("Failed to set PKEX data (initiator)")
 
-    ev = dev[0].wait_event(["DPP-FAIL"], timeout=15)
-    if ev is None:
-        raise Exception("DPP PKEX failure not reported")
-    if "No response from PKEX peer" not in ev:
-        raise Exception("Unexpected failure reason: " + ev)
+    for i in range(15):
+        ev = dev[0].wait_event(["DPP-TX ", "DPP-FAIL"], timeout=5)
+        if ev is None:
+            raise Exception("DPP PKEX failure not reported")
+        if "DPP-FAIL" not in ev:
+            continue
+        if "No response from PKEX peer" not in ev:
+            raise Exception("Unexpected failure reason: " + ev)
+        break
 
 def test_dpp_pkex_after_retry(dev, apdev):
     """DPP and PKEX completing after retry"""
@@ -3584,7 +3589,7 @@ def run_dpp_own_config(dev, apdev, own_curve=None, expect_failure=False,
     update_hapd_config(hapd)
 
     dev[0].set("dpp_config_processing", "1")
-    cmd = "DPP_CONFIGURATOR_SIGN  conf=sta-dpp configurator=%d%s" % (conf_id, extra)
+    cmd = "DPP_CONFIGURATOR_SIGN conf=sta-dpp configurator=%d%s" % (conf_id, extra)
     if own_curve:
         cmd += " curve=" + own_curve
     res = dev[0].request(cmd)
@@ -3641,7 +3646,7 @@ def run_dpp_own_config_ap(dev, apdev, reconf_configurator=False, extra=""):
         if "FAIL" in csign or len(csign) == 0:
             raise Exception("DPP_CONFIGURATOR_GET_KEY failed")
 
-    cmd = "DPP_CONFIGURATOR_SIGN  conf=ap-dpp configurator=%d%s" % (conf_id, extra)
+    cmd = "DPP_CONFIGURATOR_SIGN conf=ap-dpp configurator=%d%s" % (conf_id, extra)
     res = hapd.request(cmd)
     if "FAIL" in res:
         raise Exception("Failed to generate own configuration")

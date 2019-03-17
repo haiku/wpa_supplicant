@@ -38,6 +38,7 @@
 #include "mbo_ap.h"
 #include "dpp_hostapd.h"
 #include "fils_hlp.h"
+#include "neighbor_db.h"
 
 
 #ifdef CONFIG_FILS
@@ -739,9 +740,12 @@ void hostapd_event_sta_opmode_changed(struct hostapd_data *hapd, const u8 *addr,
 void hostapd_event_ch_switch(struct hostapd_data *hapd, int freq, int ht,
 			     int offset, int width, int cf1, int cf2)
 {
+	/* TODO: If OCV is enabled deauth STAs that don't perform a SA Query */
+
 #ifdef NEED_AP_MLME
 	int channel, chwidth, is_dfs;
 	u8 seg0_idx = 0, seg1_idx = 0;
+	size_t i;
 
 	hostapd_logger(hapd, NULL, HOSTAPD_MODULE_IEEE80211,
 		       HOSTAPD_LEVEL_INFO,
@@ -824,6 +828,9 @@ void hostapd_event_ch_switch(struct hostapd_data *hapd, int freq, int ht,
 		wpa_msg(hapd->msg_ctx, MSG_INFO, AP_CSA_FINISHED
 			"freq=%d dfs=%d", freq, is_dfs);
 	}
+
+	for (i = 0; i < hapd->iface->num_bss; i++)
+		hostapd_neighbor_set_own_report(hapd->iface->bss[i]);
 #endif /* NEED_AP_MLME */
 }
 
@@ -1104,10 +1111,7 @@ static void hostapd_action_rx(struct hostapd_data *hapd,
 #endif /* CONFIG_IEEE80211R_AP */
 #ifdef CONFIG_IEEE80211W
 	if (mgmt->u.action.category == WLAN_ACTION_SA_QUERY && plen >= 4) {
-		ieee802_11_sa_query_action(
-			hapd, mgmt->sa,
-			mgmt->u.action.u.sa_query_resp.action,
-			mgmt->u.action.u.sa_query_resp.trans_id);
+		ieee802_11_sa_query_action(hapd, mgmt, drv_mgmt->frame_len);
 	}
 #endif /* CONFIG_IEEE80211W */
 #ifdef CONFIG_WNM_AP
@@ -1725,6 +1729,11 @@ void wpa_supplicant_event(void *ctx, enum wpa_event_type event,
 				hostapd_reconfig_encryption(hapd);
 			hapd->reenable_beacon = 1;
 			ieee802_11_set_beacon(hapd);
+#ifdef NEED_AP_MLME
+		} else if (hapd->disabled && hapd->iface->cac_started) {
+			wpa_printf(MSG_DEBUG, "DFS: restarting pending CAC");
+			hostapd_handle_dfs(hapd->iface);
+#endif /* NEED_AP_MLME */
 		}
 		break;
 	case EVENT_INTERFACE_DISABLED:

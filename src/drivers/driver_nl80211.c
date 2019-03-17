@@ -1539,6 +1539,70 @@ int nl80211_get_link_noise(struct wpa_driver_nl80211_data *drv,
 }
 
 
+static int get_channel_info(struct nl_msg *msg, void *arg)
+{
+	struct nlattr *tb[NL80211_ATTR_MAX + 1] = { 0 };
+	struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
+	struct wpa_channel_info *chan_info = arg;
+
+	nla_parse(tb, NL80211_ATTR_MAX, genlmsg_attrdata(gnlh, 0),
+		  genlmsg_attrlen(gnlh, 0), NULL);
+
+	os_memset(chan_info, 0, sizeof(struct wpa_channel_info));
+	chan_info->chanwidth = CHAN_WIDTH_UNKNOWN;
+
+	if (tb[NL80211_ATTR_WIPHY_FREQ])
+		chan_info->frequency =
+			nla_get_u32(tb[NL80211_ATTR_WIPHY_FREQ]);
+	if (tb[NL80211_ATTR_CHANNEL_WIDTH])
+		chan_info->chanwidth = convert2width(
+			nla_get_u32(tb[NL80211_ATTR_CHANNEL_WIDTH]));
+	if (tb[NL80211_ATTR_WIPHY_CHANNEL_TYPE]) {
+		enum nl80211_channel_type ct =
+			nla_get_u32(tb[NL80211_ATTR_WIPHY_CHANNEL_TYPE]);
+
+		switch (ct) {
+		case NL80211_CHAN_HT40MINUS:
+			chan_info->sec_channel = -1;
+			break;
+		case NL80211_CHAN_HT40PLUS:
+			chan_info->sec_channel = 1;
+			break;
+		default:
+			chan_info->sec_channel = 0;
+			break;
+		}
+	}
+	if (tb[NL80211_ATTR_CENTER_FREQ1])
+		chan_info->center_frq1 =
+			nla_get_u32(tb[NL80211_ATTR_CENTER_FREQ1]);
+	if (tb[NL80211_ATTR_CENTER_FREQ2])
+		chan_info->center_frq2 =
+			nla_get_u32(tb[NL80211_ATTR_CENTER_FREQ2]);
+
+	if (chan_info->center_frq2) {
+		u8 seg1_idx = 0;
+
+		if (ieee80211_freq_to_chan(chan_info->center_frq2, &seg1_idx) !=
+		    NUM_HOSTAPD_MODES)
+			chan_info->seg1_idx = seg1_idx;
+	}
+
+	return NL_SKIP;
+}
+
+
+static int nl80211_channel_info(void *priv, struct wpa_channel_info *ci)
+{
+	struct i802_bss *bss = priv;
+	struct wpa_driver_nl80211_data *drv = bss->drv;
+	struct nl_msg *msg;
+
+	msg = nl80211_drv_msg(drv, 0, NL80211_CMD_GET_INTERFACE);
+	return send_and_recv_msgs(drv, msg, get_channel_info, ci);
+}
+
+
 static void wpa_driver_nl80211_event_receive(int sock, void *eloop_ctx,
 					     void *handle)
 {
@@ -2169,6 +2233,11 @@ static int nl80211_mgmt_subscribe_non_ap(struct i802_bss *bss)
 		ret = -1;
 #endif /* CONFIG_DPP */
 #ifdef CONFIG_IEEE80211W
+#ifdef CONFIG_OCV
+	/* SA Query Request */
+	if (nl80211_register_action_frame(bss, (u8 *) "\x08\x00", 2) < 0)
+		ret = -1;
+#endif /* CONFIG_OCV */
 	/* SA Query Response */
 	if (nl80211_register_action_frame(bss, (u8 *) "\x08\x01", 2) < 0)
 		ret = -1;
@@ -2962,7 +3031,7 @@ static int wpa_driver_nl80211_set_key(const char *ifname, struct i802_bss *bss,
 #endif /* CONFIG_DRIVER_NL80211_QCA */
 
 	if (alg == WPA_ALG_PMK &&
-	    (drv->capa.flags & WPA_DRIVER_FLAGS_4WAY_HANDSHAKE))
+	    (drv->capa.flags & WPA_DRIVER_FLAGS_4WAY_HANDSHAKE_8021X))
 		return nl80211_set_pmk(drv, key, key_len, addr);
 
 	if (alg == WPA_ALG_NONE) {
@@ -3968,7 +4037,7 @@ static int wpa_driver_nl80211_set_ap(void *priv,
 	struct wpa_driver_nl80211_data *drv = bss->drv;
 	struct nl_msg *msg;
 	u8 cmd = NL80211_CMD_NEW_BEACON;
-	int ret;
+	int ret = -ENOBUFS;
 	int beacon_set;
 	int num_suites;
 	int smps_mode;
@@ -4174,6 +4243,29 @@ static int wpa_driver_nl80211_set_ap(void *priv,
 			goto fail;
 	}
 
+	if (params->ftm_responder) {
+		struct nlattr *ftm;
+
+		if (!(drv->capa.flags & WPA_DRIVER_FLAGS_FTM_RESPONDER)) {
+			ret = -ENOTSUP;
+			goto fail;
+		}
+
+		ftm = nla_nest_start(msg, NL80211_ATTR_FTM_RESPONDER);
+		if (!ftm ||
+		    nla_put_flag(msg, NL80211_FTM_RESP_ATTR_ENABLED) ||
+		    (params->lci &&
+		     nla_put(msg, NL80211_FTM_RESP_ATTR_LCI,
+			     wpabuf_len(params->lci),
+			     wpabuf_head(params->lci))) ||
+		    (params->civic &&
+		     nla_put(msg, NL80211_FTM_RESP_ATTR_CIVICLOC,
+			     wpabuf_len(params->civic),
+			     wpabuf_head(params->civic))))
+			goto fail;
+		nla_nest_end(msg, ftm);
+	}
+
 	ret = send_and_recv_msgs(drv, msg, NULL, NULL);
 	if (ret) {
 		wpa_printf(MSG_DEBUG, "nl80211: Beacon set failed: %d (%s)",
@@ -4225,7 +4317,7 @@ static int wpa_driver_nl80211_set_ap(void *priv,
 	return ret;
 fail:
 	nlmsg_free(msg);
-	return -ENOBUFS;
+	return ret;
 }
 
 
@@ -5476,9 +5568,16 @@ static int nl80211_connect_common(struct wpa_driver_nl80211_data *drv,
 			return -1;
 	}
 
+	if (params->req_key_mgmt_offload &&
+	    (drv->capa.flags & WPA_DRIVER_FLAGS_4WAY_HANDSHAKE_8021X)) {
+		    wpa_printf(MSG_DEBUG, "  * WANT_1X_4WAY_HS");
+		    if (nla_put_flag(msg, NL80211_ATTR_WANT_1X_4WAY_HS))
+			    return -1;
+	    }
+
 	/* Add PSK in case of 4-way handshake offload */
 	if (params->psk &&
-	    (drv->capa.flags & WPA_DRIVER_FLAGS_4WAY_HANDSHAKE)) {
+	    (drv->capa.flags & WPA_DRIVER_FLAGS_4WAY_HANDSHAKE_PSK)) {
 		wpa_hexdump_key(MSG_DEBUG, "  * PSK", params->psk, 32);
 		if (nla_put(msg, NL80211_ATTR_PMK, 32, params->psk))
 			return -1;
@@ -6646,9 +6745,12 @@ static int i802_set_wds_sta(void *priv, const u8 *addr, int aid, int val,
 		}
 		return i802_set_sta_vlan(priv, addr, name, 0);
 	} else {
-		if (bridge_ifname)
-			linux_br_del_if(drv->global->ioctl_sock, bridge_ifname,
-					name);
+		if (bridge_ifname &&
+		    linux_br_del_if(drv->global->ioctl_sock, bridge_ifname,
+				    name) < 0)
+			wpa_printf(MSG_INFO,
+				   "nl80211: Failed to remove interface %s from bridge %s: %s",
+				   name, bridge_ifname, strerror(errno));
 
 		i802_set_sta_vlan(priv, addr, bss->ifname, 0);
 		nl80211_remove_iface(drv, if_nametoindex(name));
@@ -8593,6 +8695,8 @@ static int wpa_driver_nl80211_status(void *priv, char *buf, size_t buflen)
 	struct wpa_driver_nl80211_data *drv = bss->drv;
 	int res;
 	char *pos, *end;
+	struct nl_msg *msg;
+	char alpha2[3] = { 0, 0, 0 };
 
 	pos = buf;
 	end = buf + buflen;
@@ -8735,6 +8839,23 @@ static int wpa_driver_nl80211_status(void *priv, char *buf, size_t buflen)
 		if (os_snprintf_error(end - pos, res))
 			return pos - buf;
 		pos += res;
+	}
+
+	msg = nlmsg_alloc();
+	if (msg &&
+	    nl80211_cmd(drv, msg, 0, NL80211_CMD_GET_REG) &&
+	    nla_put_u32(msg, NL80211_ATTR_WIPHY, drv->wiphy_idx) == 0) {
+		if (send_and_recv_msgs(drv, msg, nl80211_get_country,
+				       alpha2) == 0 &&
+		    alpha2[0]) {
+			res = os_snprintf(pos, end - pos, "country=%s\n",
+					  alpha2);
+			if (os_snprintf_error(end - pos, res))
+				return pos - buf;
+			pos += res;
+		}
+	} else {
+		nlmsg_free(msg);
 	}
 
 	return pos - buf;
@@ -10669,6 +10790,49 @@ fail:
 }
 
 
+static int nl80211_set_4addr_mode(void *priv, const char *bridge_ifname,
+				  int val)
+{
+	struct i802_bss *bss = priv;
+	struct wpa_driver_nl80211_data *drv = bss->drv;
+	struct nl_msg *msg;
+	int ret = -ENOBUFS;
+
+	wpa_printf(MSG_DEBUG, "nl80211: %s 4addr mode (bridge_ifname: %s)",
+		   val ? "Enable" : "Disable", bridge_ifname);
+
+	msg = nl80211_cmd_msg(drv->first_bss, 0, NL80211_CMD_SET_INTERFACE);
+	if (!msg || nla_put_u8(msg, NL80211_ATTR_4ADDR, val))
+		goto fail;
+
+	if (bridge_ifname[0] && bss->added_if_into_bridge && !val) {
+		if (linux_br_del_if(drv->global->ioctl_sock,
+				    bridge_ifname, bss->ifname)) {
+			wpa_printf(MSG_ERROR,
+				   "nl80211: Failed to remove interface %s from bridge %s",
+				   bss->ifname, bridge_ifname);
+			return -1;
+		}
+		bss->added_if_into_bridge = 0;
+	}
+
+	ret = send_and_recv_msgs(drv, msg, NULL, NULL);
+	msg = NULL;
+	if (!ret) {
+		if (bridge_ifname[0] && val &&
+		    i802_check_bridge(drv, bss, bridge_ifname, bss->ifname) < 0)
+			return -1;
+		return 0;
+	}
+
+fail:
+	nlmsg_free(msg);
+	wpa_printf(MSG_ERROR, "nl80211: Failed to enable/disable 4addr");
+
+	return ret;
+}
+
+
 const struct wpa_driver_ops wpa_driver_nl80211_ops = {
 	.name = "nl80211",
 	.desc = "Linux nl80211/cfg80211",
@@ -10728,6 +10892,7 @@ const struct wpa_driver_ops wpa_driver_nl80211_ops = {
 	.resume = wpa_driver_nl80211_resume,
 	.signal_monitor = nl80211_signal_monitor,
 	.signal_poll = nl80211_signal_poll,
+	.channel_info = nl80211_channel_info,
 	.send_frame = nl80211_send_frame,
 	.set_param = nl80211_set_param,
 	.get_radio_name = nl80211_get_radio_name,
@@ -10797,4 +10962,5 @@ const struct wpa_driver_ops wpa_driver_nl80211_ops = {
 	.get_ext_capab = nl80211_get_ext_capab,
 	.update_connect_params = nl80211_update_connection_params,
 	.send_external_auth_status = nl80211_send_external_auth_status,
+	.set_4addr_mode = nl80211_set_4addr_mode,
 };
