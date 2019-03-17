@@ -13,6 +13,7 @@
  */
 
 #include <Application.h>
+#include <Catalog.h>
 #include <KeyStore.h>
 #include <Locker.h>
 #include <MessageQueue.h>
@@ -46,6 +47,10 @@ extern "C" {
 #include <net80211/ieee80211_ioctl.h>
 #include <sys/sockio.h>
 }
+
+
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "wpa_supplicant"
 
 
 static const uint32 kMsgJoinTimeout = 'jnto';
@@ -527,7 +532,8 @@ WPASupplicantApp::_JoinNetwork(BMessage *message)
 			// The key format is invalid, we need to ask for another password.
 			BMessage newJoinRequest = *message;
 			newJoinRequest.RemoveName("password");
-			newJoinRequest.AddString("error", "Password format invalid");
+			newJoinRequest.AddString("error",
+				B_TRANSLATE("Password format invalid!"));
 			newJoinRequest.AddBool("forceDialog", true);
 			PostMessage(&newJoinRequest);
 		}
@@ -727,7 +733,8 @@ WPASupplicantApp::_FailedToJoin(const wpa_supplicant *interface,
 	be_app->PostMessage(&leaveRequest);
 
 	BMessage newJoinRequest = joinRequest;
-	newJoinRequest.AddString("error", "Failed to join network");
+	newJoinRequest.AddString("error",
+		B_TRANSLATE("Failed to join network. (Incorrect password?)"));
 	newJoinRequest.AddBool("forceDialog", true);
 	be_app->PostMessage(&newJoinRequest);
 }
