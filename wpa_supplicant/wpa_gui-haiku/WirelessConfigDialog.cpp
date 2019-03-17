@@ -17,13 +17,13 @@
 #include <CheckBox.h>
 #include <GridLayout.h>
 #include <GridView.h>
-#include <GroupLayout.h>
+#include <LayoutBuilder.h>
 #include <GroupView.h>
 #include <MenuField.h>
 #include <MenuItem.h>
 #include <NetworkDevice.h>
 #include <PopUpMenu.h>
-#include <SpaceLayoutItem.h>
+#include <StringView.h>
 #include <TextControl.h>
 #include <Window.h>
 #include <View.h>
@@ -46,24 +46,17 @@ public:
 		BView("WirelessConfigView", B_WILL_DRAW),
 		fPassword(NULL)
 	{
-		SetViewColor(ui_color(B_PANEL_BACKGROUND_COLOR));
-
-		BGroupLayout* rootLayout = new(std::nothrow) BGroupLayout(B_VERTICAL);
-		if (rootLayout == NULL)
-			return;
-
-		SetLayout(rootLayout);
+		fErrorLabel = new BStringView("error label", NULL);
+		BFont font(be_plain_font);
+		font.SetFace(B_ITALIC_FACE);
+		fErrorLabel->SetFont(&font);
+		fErrorLabel->Hide();
 
 		BGridView* controls = new(std::nothrow) BGridView();
 		if (controls == NULL)
 			return;
 
 		BGridLayout* layout = controls->GridLayout();
-
-		float inset = ceilf(be_plain_font->Size() * 0.7);
-		rootLayout->SetInsets(inset, inset, inset, inset);
-		rootLayout->SetSpacing(inset);
-		layout->SetSpacing(inset, inset);
 
 		fNetworkName = new(std::nothrow) BTextControl(B_TRANSLATE("Network name:"),
 			"", NULL);
@@ -100,8 +93,7 @@ public:
 			return;
 
 		BLayoutItem* layoutItem = fPassword->CreateTextViewLayoutItem();
-		layoutItem->SetExplicitMinSize(BSize(fPassword->StringWidth(
-				"0123456789012345678901234567890123456789") + inset,
+		layoutItem->SetExplicitMinSize(BSize((285 / 12) * be_plain_font->Size(),
 			B_SIZE_UNSET));
 
 		layout->AddItem(fPassword->CreateLabelLayoutItem(), 0, row);
@@ -111,22 +103,22 @@ public:
 		layout->AddItem(BSpaceLayoutItem::CreateGlue(), 0, row);
 		layout->AddView(fPersist, 1, row++);
 
-		BGroupView* buttons = new(std::nothrow) BGroupView(B_HORIZONTAL);
-		if (buttons == NULL)
-			return;
-
 		fCancelButton = new(std::nothrow) BButton(B_TRANSLATE("Cancel"),
 			new BMessage(kMessageCancel));
-		buttons->GroupLayout()->AddView(fCancelButton);
-
-		buttons->GroupLayout()->AddItem(BSpaceLayoutItem::CreateGlue());
 
 		fOkButton = new(std::nothrow) BButton(B_TRANSLATE("OK"),
 			new BMessage(kMessageOk));
-		buttons->GroupLayout()->AddView(fOkButton);
 
-		rootLayout->AddView(controls);
-		rootLayout->AddView(buttons);
+		BLayoutBuilder::Group<>(this, B_VERTICAL)
+			.SetInsets(B_USE_WINDOW_INSETS)
+			.Add(fErrorLabel)
+			.Add(controls)
+			.AddGroup(B_HORIZONTAL)
+				.Add(fCancelButton)
+				.AddGlue()
+				.Add(fOkButton)
+			.End()
+		.End();
 	}
 
 	virtual void
@@ -141,6 +133,12 @@ public:
 	void
 	SetUp(const BMessage& message)
 	{
+		BString error;
+		if (message.FindString("error", &error) == B_OK) {
+			fErrorLabel->SetText(error);
+			fErrorLabel->Show();
+		}
+
 		BString networkName;
 		if (message.FindString("name", &networkName) == B_OK)
 			fNetworkName->SetText(networkName);
@@ -191,6 +189,7 @@ public:
 	}
 
 private:
+	BStringView* fErrorLabel;
 	BTextControl* fNetworkName;
 	BMenuItem* fAuthOpen;
 	BMenuItem* fAuthWEP;
@@ -218,17 +217,13 @@ public:
 		if (fDoneSem < 0)
 			return;
 
-		BLayout* layout = new(std::nothrow) BGroupLayout(B_HORIZONTAL);
-		if (layout == NULL)
-			return;
-
-		SetLayout(layout);
-
 		fConfigView = new(std::nothrow) WirelessConfigView();
 		if (fConfigView == NULL)
 			return;
 
-		layout->AddView(fConfigView);
+		BLayoutBuilder::Group<>(this, B_VERTICAL)
+			.Add(fConfigView)
+		.End();
 	}
 
 	virtual
@@ -268,13 +263,13 @@ public:
 	status_t
 	WaitForDialog(BMessage& message)
 	{
-		
 		fConfigView->SetUp(message);
 
 		CenterOnScreen();
 		Show();
 
-		while (acquire_sem(fDoneSem) == B_INTERRUPTED);
+		while (acquire_sem(fDoneSem) == B_INTERRUPTED)
+			;
 
 		status_t result = fResult;
 		fConfigView->Complete(message);
