@@ -4,26 +4,28 @@
 # This software may be distributed under the terms of the BSD license.
 # See README for more details.
 
+import binascii
 import logging
 logger = logging.getLogger()
 import time
 import os
+import struct
 
 import hostapd
 from wpasupplicant import WpaSupplicant
 import hwsim_utils
 from tshark import run_tshark
-from utils import HwsimSkip
+from utils import HwsimSkip, fail_test, alloc_fail, wait_fail_trigger
 
 def test_owe(dev, apdev):
     """Opportunistic Wireless Encryption"""
     if "OWE" not in dev[0].get_capability("key_mgmt"):
         raise HwsimSkip("OWE not supported")
-    params = { "ssid": "owe",
-               "wpa": "2",
-               "ieee80211w": "2",
-               "wpa_key_mgmt": "OWE",
-               "rsn_pairwise": "CCMP" }
+    params = {"ssid": "owe",
+              "wpa": "2",
+              "ieee80211w": "2",
+              "wpa_key_mgmt": "OWE",
+              "rsn_pairwise": "CCMP"}
     hapd = hostapd.add_ap(apdev[0], params)
     bssid = hapd.own_addr()
 
@@ -43,15 +45,15 @@ def test_owe_groups(dev, apdev):
     """Opportunistic Wireless Encryption - DH groups"""
     if "OWE" not in dev[0].get_capability("key_mgmt"):
         raise HwsimSkip("OWE not supported")
-    params = { "ssid": "owe",
-               "wpa": "2",
-               "wpa_key_mgmt": "OWE",
-               "rsn_pairwise": "CCMP" }
+    params = {"ssid": "owe",
+              "wpa": "2",
+              "wpa_key_mgmt": "OWE",
+              "rsn_pairwise": "CCMP"}
     hapd = hostapd.add_ap(apdev[0], params)
     bssid = hapd.own_addr()
 
     dev[0].scan_for_bss(bssid, freq="2412")
-    for group in [ 19, 20, 21 ]:
+    for group in [19, 20, 21]:
         dev[0].connect("owe", key_mgmt="OWE", owe_group=str(group))
         hwsim_utils.test_connectivity(dev[0], hapd)
         dev[0].request("REMOVE_NETWORK all")
@@ -66,15 +68,15 @@ def test_owe_pmksa_caching_connect_cmd(dev, apdev):
     """Opportunistic Wireless Encryption and PMKSA caching using cfg80211 connect command"""
     wpas = WpaSupplicant(global_iface='/tmp/wpas-wlan5')
     wpas.interface_add("wlan5", drv_params="force_connect_cmd=1")
-    run_owe_pmksa_caching([ wpas ], apdev)
+    run_owe_pmksa_caching([wpas], apdev)
 
 def run_owe_pmksa_caching(dev, apdev):
     if "OWE" not in dev[0].get_capability("key_mgmt"):
         raise HwsimSkip("OWE not supported")
-    params = { "ssid": "owe",
-               "wpa": "2",
-               "wpa_key_mgmt": "OWE",
-               "rsn_pairwise": "CCMP" }
+    params = {"ssid": "owe",
+              "wpa": "2",
+              "wpa_key_mgmt": "OWE",
+              "rsn_pairwise": "CCMP"}
     hapd = hostapd.add_ap(apdev[0], params)
     bssid = hapd.own_addr()
 
@@ -116,11 +118,11 @@ def test_owe_and_psk(dev, apdev):
     """Opportunistic Wireless Encryption and WPA2-PSK enabled"""
     if "OWE" not in dev[0].get_capability("key_mgmt"):
         raise HwsimSkip("OWE not supported")
-    params = { "ssid": "owe+psk",
-               "wpa": "2",
-               "wpa_key_mgmt": "OWE WPA-PSK",
-               "rsn_pairwise": "CCMP",
-               "wpa_passphrase": "12345678" }
+    params = {"ssid": "owe+psk",
+              "wpa": "2",
+              "wpa_key_mgmt": "OWE WPA-PSK",
+              "rsn_pairwise": "CCMP",
+              "wpa_passphrase": "12345678"}
     hapd = hostapd.add_ap(apdev[0], params)
     bssid = hapd.own_addr()
 
@@ -140,26 +142,26 @@ def test_owe_transition_mode_connect_cmd(dev, apdev):
     """Opportunistic Wireless Encryption transition mode using cfg80211 connect command"""
     wpas = WpaSupplicant(global_iface='/tmp/wpas-wlan5')
     wpas.interface_add("wlan5", drv_params="force_connect_cmd=1")
-    run_owe_transition_mode([ wpas ], apdev)
+    run_owe_transition_mode([wpas], apdev)
 
 def run_owe_transition_mode(dev, apdev):
     if "OWE" not in dev[0].get_capability("key_mgmt"):
         raise HwsimSkip("OWE not supported")
     dev[0].flush_scan_cache()
-    params = { "ssid": "owe-random",
-               "wpa": "2",
-               "wpa_key_mgmt": "OWE",
-               "rsn_pairwise": "CCMP",
-               "ieee80211w": "2",
-               "owe_transition_bssid": apdev[1]['bssid'],
-               "owe_transition_ssid": '"owe-test"',
-               "ignore_broadcast_ssid": "1" }
+    params = {"ssid": "owe-random",
+              "wpa": "2",
+              "wpa_key_mgmt": "OWE",
+              "rsn_pairwise": "CCMP",
+              "ieee80211w": "2",
+              "owe_transition_bssid": apdev[1]['bssid'],
+              "owe_transition_ssid": '"owe-test"',
+              "ignore_broadcast_ssid": "1"}
     hapd = hostapd.add_ap(apdev[0], params)
     bssid = hapd.own_addr()
 
-    params = { "ssid": "owe-test",
-               "owe_transition_bssid": apdev[0]['bssid'],
-               "owe_transition_ssid": '"owe-random"' }
+    params = {"ssid": "owe-test",
+              "owe_transition_bssid": apdev[0]['bssid'],
+              "owe_transition_ssid": '"owe-random"'}
     hapd2 = hostapd.add_ap(apdev[1], params)
     bssid2 = hapd2.own_addr()
 
@@ -207,7 +209,7 @@ def test_owe_transition_mode_open_only_ap(dev, apdev):
     if "OWE" not in dev[0].get_capability("key_mgmt"):
         raise HwsimSkip("OWE not supported")
     dev[0].flush_scan_cache()
-    params = { "ssid": "owe-test-open" }
+    params = {"ssid": "owe-test-open"}
     hapd = hostapd.add_ap(apdev[0], params)
     bssid = hapd.own_addr()
 
@@ -227,9 +229,9 @@ def test_owe_transition_mode_open_multiple_scans(dev, apdev):
     if "OWE" not in dev[0].get_capability("key_mgmt"):
         raise HwsimSkip("OWE not supported")
     dev[0].flush_scan_cache()
-    params = { "ssid": "owe-test",
-               "owe_transition_bssid": apdev[0]['bssid'],
-               "owe_transition_ssid": '"owe-random"' }
+    params = {"ssid": "owe-test",
+              "owe_transition_bssid": apdev[0]['bssid'],
+              "owe_transition_ssid": '"owe-random"'}
     hapd2 = hostapd.add_ap(apdev[1], params)
     bssid2 = hapd2.own_addr()
 
@@ -240,14 +242,14 @@ def test_owe_transition_mode_open_multiple_scans(dev, apdev):
                         scan_freq="2412", wait_connect=False)
     ev = dev[0].wait_event(["CTRL-EVENT-SCAN-RESULTS"], timeout=1)
 
-    params = { "ssid": "owe-random",
-               "wpa": "2",
-               "wpa_key_mgmt": "OWE",
-               "rsn_pairwise": "CCMP",
-               "ieee80211w": "2",
-               "owe_transition_bssid": apdev[1]['bssid'],
-               "owe_transition_ssid": '"owe-test"',
-               "ignore_broadcast_ssid": "1" }
+    params = {"ssid": "owe-random",
+              "wpa": "2",
+              "wpa_key_mgmt": "OWE",
+              "rsn_pairwise": "CCMP",
+              "ieee80211w": "2",
+              "owe_transition_bssid": apdev[1]['bssid'],
+              "owe_transition_ssid": '"owe-test"',
+              "ignore_broadcast_ssid": "1"}
     hapd = hostapd.add_ap(apdev[0], params)
     bssid = hapd.own_addr()
 
@@ -306,7 +308,7 @@ def test_owe_unsupported_group_connect_cmd(dev, apdev):
         wpas = None
         wpas = WpaSupplicant(global_iface='/tmp/wpas-wlan5')
         wpas.interface_add("wlan5", drv_params="force_connect_cmd=1")
-        run_owe_unsupported_group([ wpas ], apdev)
+        run_owe_unsupported_group([wpas], apdev)
     finally:
         if wpas:
             wpas.request("VENDOR_ELEM_REMOVE 13 *")
@@ -319,10 +321,10 @@ def run_owe_unsupported_group(dev, apdev):
     # status code 77.
     dev[0].request("VENDOR_ELEM_ADD 13 ff23200000783590fb7440e03d5b3b33911f86affdcc6b4411b707846ac4ff08ddc8831ccd")
 
-    params = { "ssid": "owe",
-               "wpa": "2",
-               "wpa_key_mgmt": "OWE",
-               "rsn_pairwise": "CCMP" }
+    params = {"ssid": "owe",
+              "wpa": "2",
+              "wpa_key_mgmt": "OWE",
+              "rsn_pairwise": "CCMP"}
     hapd = hostapd.add_ap(apdev[0], params)
     bssid = hapd.own_addr()
 
@@ -339,11 +341,11 @@ def test_owe_limited_group_set(dev, apdev):
     """Opportunistic Wireless Encryption and limited group set"""
     if "OWE" not in dev[0].get_capability("key_mgmt"):
         raise HwsimSkip("OWE not supported")
-    params = { "ssid": "owe",
-               "wpa": "2",
-               "wpa_key_mgmt": "OWE",
-               "rsn_pairwise": "CCMP",
-               "owe_groups": "20 21" }
+    params = {"ssid": "owe",
+              "wpa": "2",
+              "wpa_key_mgmt": "OWE",
+              "rsn_pairwise": "CCMP",
+              "owe_groups": "20 21"}
     hapd = hostapd.add_ap(apdev[0], params)
     bssid = hapd.own_addr()
 
@@ -357,7 +359,7 @@ def test_owe_limited_group_set(dev, apdev):
         raise Exception("Unexpected rejection reason: " + ev)
     dev[0].dump_monitor()
 
-    for group in [ 20, 21 ]:
+    for group in [20, 21]:
         dev[0].connect("owe", key_mgmt="OWE", owe_group=str(group))
         dev[0].request("REMOVE_NETWORK all")
         dev[0].wait_disconnected()
@@ -369,12 +371,12 @@ def test_owe_limited_group_set_pmf(dev, apdev, params):
         raise HwsimSkip("OWE not supported")
     pcapng = os.path.join(params['logdir'], "hwsim0.pcapng")
 
-    params = { "ssid": "owe",
-               "wpa": "2",
-               "ieee80211w": "2",
-               "wpa_key_mgmt": "OWE",
-               "rsn_pairwise": "CCMP",
-               "owe_groups": "21" }
+    params = {"ssid": "owe",
+              "wpa": "2",
+              "ieee80211w": "2",
+              "wpa_key_mgmt": "OWE",
+              "rsn_pairwise": "CCMP",
+              "owe_groups": "21"}
     hapd = hostapd.add_ap(apdev[0], params)
     bssid = hapd.own_addr()
 
@@ -428,11 +430,11 @@ def test_owe_group_negotiation_connect_cmd(dev, apdev):
 def run_owe_group_negotiation(dev, apdev):
     if "OWE" not in dev.get_capability("key_mgmt"):
         raise HwsimSkip("OWE not supported")
-    params = { "ssid": "owe",
-               "wpa": "2",
-               "wpa_key_mgmt": "OWE",
-               "rsn_pairwise": "CCMP",
-               "owe_groups": "21" }
+    params = {"ssid": "owe",
+              "wpa": "2",
+              "wpa_key_mgmt": "OWE",
+              "rsn_pairwise": "CCMP",
+              "owe_groups": "21"}
     hapd = hostapd.add_ap(apdev[0], params)
     bssid = hapd.own_addr()
 
@@ -443,13 +445,13 @@ def test_owe_assoc_reject(dev, apdev):
     """Opportunistic Wireless Encryption association rejection handling"""
     if "OWE" not in dev[0].get_capability("key_mgmt"):
         raise HwsimSkip("OWE not supported")
-    params = { "ssid": "owe",
-               "require_ht": "1",
-               "wpa": "2",
-               "ieee80211w": "2",
-               "wpa_key_mgmt": "OWE",
-               "rsn_pairwise": "CCMP",
-               "owe_groups": "19" }
+    params = {"ssid": "owe",
+              "require_ht": "1",
+              "wpa": "2",
+              "ieee80211w": "2",
+              "wpa_key_mgmt": "OWE",
+              "rsn_pairwise": "CCMP",
+              "owe_groups": "19"}
     hapd = hostapd.add_ap(apdev[0], params)
     bssid = hapd.own_addr()
 
@@ -457,7 +459,7 @@ def test_owe_assoc_reject(dev, apdev):
     dev[0].scan_for_bss(bssid, freq="2412")
     dev[0].connect("owe", key_mgmt="OWE", ieee80211w="2",
                    disable_ht="1", scan_freq="2412", wait_connect=False)
-    for i in range(0,2):
+    for i in range(0, 2):
         ev = dev[0].wait_event(["CTRL-EVENT-ASSOC-REJECT"], timeout=10)
         if ev is None:
             raise Exception("Association rejection not reported")
@@ -465,7 +467,7 @@ def test_owe_assoc_reject(dev, apdev):
     # Then, verify that STA tries OWE with the default group (19) on the next
     # attempt instead of having moved to testing another group.
     hapd.set("require_ht", "0")
-    for i in range(0,2):
+    for i in range(0, 2):
         ev = dev[0].wait_event(["CTRL-EVENT-ASSOC-REJECT",
                                 "CTRL-EVENT-CONNECTED"], timeout=10)
         if ev is None:
@@ -476,3 +478,152 @@ def test_owe_assoc_reject(dev, apdev):
             raise Exception("Unexpected unsupport group rejection")
     if "CTRL-EVENT-CONNECTED" not in ev:
         raise Exception("Did not connect successfully")
+
+def test_owe_local_errors(dev, apdev):
+    """Opportunistic Wireless Encryption - local errors on supplicant"""
+    if "OWE" not in dev[0].get_capability("key_mgmt"):
+        raise HwsimSkip("OWE not supported")
+    params = {"ssid": "owe",
+              "wpa": "2",
+              "ieee80211w": "2",
+              "wpa_key_mgmt": "OWE",
+              "rsn_pairwise": "CCMP"}
+    hapd = hostapd.add_ap(apdev[0], params)
+    bssid = hapd.own_addr()
+
+    dev[0].scan_for_bss(bssid, freq="2412")
+
+    tests = [(1, "crypto_ecdh_init;owe_build_assoc_req"),
+             (1, "crypto_ecdh_get_pubkey;owe_build_assoc_req"),
+             (1, "wpabuf_alloc;owe_build_assoc_req")]
+    for count, func in tests:
+        with alloc_fail(dev[0], count, func):
+            dev[0].connect("owe", key_mgmt="OWE", owe_group="20",
+                           ieee80211w="2",
+                           scan_freq="2412", wait_connect=False)
+            wait_fail_trigger(dev[0], "GET_ALLOC_FAIL")
+            dev[0].request("REMOVE_NETWORK all")
+            dev[0].dump_monitor()
+
+    tests = [(1, "crypto_ecdh_set_peerkey;owe_process_assoc_resp"),
+             (1, "crypto_ecdh_get_pubkey;owe_process_assoc_resp"),
+             (1, "wpabuf_alloc;=owe_process_assoc_resp")]
+    for count, func in tests:
+        with alloc_fail(dev[0], count, func):
+            dev[0].connect("owe", key_mgmt="OWE", owe_group="20",
+                           ieee80211w="2",
+                           scan_freq="2412", wait_connect=False)
+            dev[0].wait_disconnected()
+            dev[0].request("REMOVE_NETWORK all")
+            dev[0].dump_monitor()
+
+    tests = [(1, "hmac_sha256;owe_process_assoc_resp", 19),
+             (1, "hmac_sha256_kdf;owe_process_assoc_resp", 19),
+             (1, "hmac_sha384;owe_process_assoc_resp", 20),
+             (1, "hmac_sha384_kdf;owe_process_assoc_resp", 20),
+             (1, "hmac_sha512;owe_process_assoc_resp", 21),
+             (1, "hmac_sha512_kdf;owe_process_assoc_resp", 21)]
+    for count, func, group in tests:
+        with fail_test(dev[0], count, func):
+            dev[0].connect("owe", key_mgmt="OWE", owe_group=str(group),
+                           ieee80211w="2",
+                           scan_freq="2412", wait_connect=False)
+            dev[0].wait_disconnected()
+            dev[0].request("REMOVE_NETWORK all")
+            dev[0].dump_monitor()
+
+    dev[0].connect("owe", key_mgmt="OWE", owe_group="18",
+                   ieee80211w="2",
+                   scan_freq="2412", wait_connect=False)
+    ev = dev[0].wait_event(["SME: Trying to authenticate"], timeout=5)
+    if ev is None:
+        raise Exception("No authentication attempt")
+    time.sleep(0.5)
+    dev[0].request("REMOVE_NETWORK all")
+    dev[0].dump_monitor()
+
+def hapd_auth(hapd):
+    for i in range(0, 10):
+        req = hapd.mgmt_rx()
+        if req is None:
+            raise Exception("MGMT RX wait timed out")
+        if req['subtype'] == 11:
+            break
+        req = None
+    if not req:
+        raise Exception("Authentication frame not received")
+
+    resp = {}
+    resp['fc'] = req['fc']
+    resp['da'] = req['sa']
+    resp['sa'] = req['da']
+    resp['bssid'] = req['bssid']
+    resp['payload'] = struct.pack('<HHH', 0, 2, 0)
+    hapd.mgmt_tx(resp)
+
+def hapd_assoc(hapd, extra):
+    for i in range(0, 10):
+        req = hapd.mgmt_rx()
+        if req is None:
+            raise Exception("MGMT RX wait timed out")
+        if req['subtype'] == 0:
+            break
+        req = None
+    if not req:
+        raise Exception("Association Request frame not received")
+
+    resp = {}
+    resp['fc'] = 0x0010
+    resp['da'] = req['sa']
+    resp['sa'] = req['da']
+    resp['bssid'] = req['bssid']
+    payload = struct.pack('<HHH', 0x0411, 0, 0xc001)
+    payload += binascii.unhexlify("010882848b960c121824")
+    resp['payload'] = payload + extra
+    hapd.mgmt_tx(resp)
+
+def test_owe_invalid_assoc_resp(dev, apdev):
+    """Opportunistic Wireless Encryption - invalid Association Response frame"""
+    if "OWE" not in dev[0].get_capability("key_mgmt"):
+        raise HwsimSkip("OWE not supported")
+    params = {"ssid": "owe",
+              "wpa": "2",
+              "ieee80211w": "2",
+              "wpa_key_mgmt": "OWE",
+              "rsn_pairwise": "CCMP"}
+    hapd = hostapd.add_ap(apdev[0], params)
+    bssid = hapd.own_addr()
+
+    dev[0].scan_for_bss(bssid, freq="2412")
+
+    hapd.set("ext_mgmt_frame_handling", "1")
+    # OWE: No Diffie-Hellman Parameter element found in Association Response frame
+    tests = [b'']
+    # No room for group --> no DH Params
+    tests += [binascii.unhexlify('ff0120')]
+    # OWE: Unexpected Diffie-Hellman group in response: 18
+    tests += [binascii.unhexlify('ff03201200')]
+    # OWE: Invalid peer DH public key
+    tests += [binascii.unhexlify('ff23201300' + 31*'00' + '01')]
+    # OWE: Invalid peer DH public key
+    tests += [binascii.unhexlify('ff24201300' + 33*'ee')]
+    for extra in tests:
+        dev[0].connect("owe", key_mgmt="OWE", owe_group="19", ieee80211w="2",
+                       scan_freq="2412", wait_connect=False)
+        hapd_auth(hapd)
+        hapd_assoc(hapd, extra)
+        dev[0].wait_disconnected()
+        dev[0].request("REMOVE_NETWORK all")
+        dev[0].dump_monitor()
+
+    # OWE: Empty public key (this ends up getting padded to a valid point)
+    dev[0].connect("owe", key_mgmt="OWE", owe_group="19", ieee80211w="2",
+                   scan_freq="2412", wait_connect=False)
+    hapd_auth(hapd)
+    hapd_assoc(hapd, binascii.unhexlify('ff03201300'))
+    ev = dev[0].wait_event(["CTRL-EVENT-DISCONNECTED", "PMKSA-CACHE-ADDED"],
+                           timeout=5)
+    if ev is None:
+        raise Exception("No result reported for empty public key")
+    dev[0].request("REMOVE_NETWORK all")
+    dev[0].dump_monitor()

@@ -32,6 +32,14 @@ cat openssl2.cnf |
 	> openssl.cnf.tmp
 $OPENSSL ca -config $PWD/openssl.cnf.tmp -batch -in server-eku-client-server.csr -out server-eku-client-server.pem -extensions ext_client_server
 
+cat openssl2.cnf |
+	sed "s/#@CN@/commonName_default = server-policies.w1.fi/" |
+	sed "s/#@ALTNAME@/subjectAltName=DNS:server-policies.w1.fi/" |
+	sed "s/#@CERTPOL@/certificatePolicies = 1.3.6.1.4.1.40808.1.3.1/" \
+	> openssl.cnf.tmp
+#$OPENSSL req -config openssl.cnf.tmp -batch -new -newkey rsa:3072 -nodes -keyout server-certpol.key -out server-certpol.csr -outform PEM -sha256
+$OPENSSL ca -config $PWD/openssl.cnf.tmp -batch -in server-certpol.csr -out server-certpol.pem -extensions ext_server
+
 echo
 echo "---[ Update user certificates ]-----------------------------------------"
 echo
@@ -50,6 +58,9 @@ echo
 
 $OPENSSL ocsp -CAfile test-ca/cacert.pem -issuer test-ca/cacert.pem -cert server.pem -reqout ocsp-req.der -no_nonce
 $OPENSSL ocsp -index test-ca/index.txt -rsigner test-ca/cacert.pem -rkey test-ca/private/cakey.pem -CA test-ca/cacert.pem -resp_no_certs -reqin ocsp-req.der -respout ocsp-server-cache.der
+SIZ=`ls -l ocsp-server-cache.der | cut -f5 -d' '`
+(echo -n 000; echo "obase=16;$SIZ" | bc) | xxd -r -ps > ocsp-multi-server-cache.der
+cat ocsp-server-cache.der >> ocsp-multi-server-cache.der
 
 echo
 echo "---[ Additional steps ]-------------------------------------------------"

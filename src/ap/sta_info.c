@@ -13,6 +13,7 @@
 #include "common/ieee802_11_defs.h"
 #include "common/wpa_ctrl.h"
 #include "common/sae.h"
+#include "common/dpp.h"
 #include "radius/radius.h"
 #include "radius/radius_client.h"
 #include "p2p/p2p.h"
@@ -329,6 +330,7 @@ void ap_free_sta(struct hostapd_data *hapd, struct sta_info *sta)
 	os_free(sta->ht_capabilities);
 	os_free(sta->vht_capabilities);
 	os_free(sta->vht_operation);
+	os_free(sta->he_capab);
 	hostapd_free_psk_list(sta->psk);
 	os_free(sta->identity);
 	os_free(sta->radius_cui);
@@ -361,6 +363,11 @@ void ap_free_sta(struct hostapd_data *hapd, struct sta_info *sta)
 	bin_clear_free(sta->owe_pmk, sta->owe_pmk_len);
 	crypto_ecdh_deinit(sta->owe_ecdh);
 #endif /* CONFIG_OWE */
+
+#ifdef CONFIG_DPP2
+	dpp_pfs_free(sta->dpp_pfs);
+	sta->dpp_pfs = NULL;
+#endif /* CONFIG_DPP2 */
 
 	os_free(sta->ext_capability);
 
@@ -500,6 +507,13 @@ skip_poll:
 					sta->flags & WLAN_STA_WMM);
 	} else if (sta->timeout_next != STA_REMOVE) {
 		int deauth = sta->timeout_next == STA_DEAUTH;
+
+		if (!deauth && !(sta->flags & WLAN_STA_ASSOC)) {
+			/* Cannot disassociate not-associated STA, so move
+			 * directly to deauthentication. */
+			sta->timeout_next = STA_DEAUTH;
+			deauth = 1;
+		}
 
 		wpa_dbg(hapd->msg_ctx, MSG_DEBUG,
 			"Timeout, sending %s info to STA " MACSTR,
@@ -657,6 +671,7 @@ void ap_sta_session_warning_timeout(struct hostapd_data *hapd,
 struct sta_info * ap_sta_add(struct hostapd_data *hapd, const u8 *addr)
 {
 	struct sta_info *sta;
+	int i;
 
 	sta = ap_get_sta(hapd, addr);
 	if (sta)
@@ -680,6 +695,15 @@ struct sta_info * ap_sta_add(struct hostapd_data *hapd, const u8 *addr)
 		os_free(sta);
 		return NULL;
 	}
+
+	for (i = 0; i < WLAN_SUPP_RATES_MAX; i++) {
+		if (!hapd->iface->basic_rates)
+			break;
+		if (hapd->iface->basic_rates[i] < 0)
+			break;
+		sta->supported_rates[i] = hapd->iface->basic_rates[i] / 5;
+	}
+	sta->supported_rates_len = i;
 
 	if (!(hapd->iface->drv_flags & WPA_DRIVER_FLAGS_INACTIVITY_TIMER)) {
 		wpa_printf(MSG_DEBUG, "%s: register ap_handle_timer timeout "
@@ -799,6 +823,8 @@ void ap_sta_disassociate(struct hostapd_data *hapd, struct sta_info *sta,
 			       ap_handle_timer, hapd, sta);
 	accounting_sta_stop(hapd, sta);
 	ieee802_1x_free_station(hapd, sta);
+	wpa_auth_sta_deinit(sta->wpa_sm);
+	sta->wpa_sm = NULL;
 
 	sta->disassoc_reason = reason;
 	sta->flags |= WLAN_STA_PENDING_DISASSOC_CB;

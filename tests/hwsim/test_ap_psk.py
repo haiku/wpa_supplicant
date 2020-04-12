@@ -13,12 +13,13 @@ import logging
 logger = logging.getLogger()
 import os
 import re
+import socket
 import struct
 import subprocess
 import time
 
 import hostapd
-from utils import HwsimSkip, fail_test, skip_with_fips
+from utils import HwsimSkip, fail_test, skip_with_fips, start_monitor, stop_monitor, radiotap_build
 import hwsim_utils
 from wpasupplicant import WpaSupplicant
 
@@ -135,7 +136,7 @@ def test_ap_wpa2_psk_file_keyid(dev, apdev, params):
     if "OK" not in hapd.request("RELOAD_WPA_PSK"):
         raise Exception("RELOAD_WPA_PSK failed")
 
-    check_disconnect(dev, [ False, True, False ])
+    check_disconnect(dev, [False, True, False])
 
     with open(psk_file, 'w') as f:
         f.write('00:00:00:00:00:00 secret passphrase\n')
@@ -163,7 +164,7 @@ def test_ap_wpa2_psk_file_keyid(dev, apdev, params):
     if "OK" not in hapd.request("RELOAD_WPA_PSK"):
         raise Exception("RELOAD_WPA_PSK failed")
 
-    check_disconnect(dev, [ True, True, False ])
+    check_disconnect(dev, [True, True, False])
 
 @remote_compatible
 def test_ap_wpa2_psk_mem(dev, apdev):
@@ -260,8 +261,8 @@ def test_ap_wpa2_sha256_ptk_rekey(dev, apdev):
     if ev is None:
         raise Exception("PTK rekey timed out")
     hwsim_utils.test_connectivity(dev[0], hapd)
-    check_mib(dev[0], [ ("dot11RSNAAuthenticationSuiteRequested", "00-0f-ac-6"),
-                        ("dot11RSNAAuthenticationSuiteSelected", "00-0f-ac-6") ])
+    check_mib(dev[0], [("dot11RSNAAuthenticationSuiteRequested", "00-0f-ac-6"),
+                       ("dot11RSNAAuthenticationSuiteSelected", "00-0f-ac-6")])
 
 @remote_compatible
 def test_ap_wpa2_sha256_ptk_rekey_ap(dev, apdev):
@@ -278,8 +279,8 @@ def test_ap_wpa2_sha256_ptk_rekey_ap(dev, apdev):
     if ev is None:
         raise Exception("PTK rekey timed out")
     hwsim_utils.test_connectivity(dev[0], hapd)
-    check_mib(dev[0], [ ("dot11RSNAAuthenticationSuiteRequested", "00-0f-ac-6"),
-                        ("dot11RSNAAuthenticationSuiteSelected", "00-0f-ac-6") ])
+    check_mib(dev[0], [("dot11RSNAAuthenticationSuiteRequested", "00-0f-ac-6"),
+                       ("dot11RSNAAuthenticationSuiteSelected", "00-0f-ac-6")])
 
 @remote_compatible
 def test_ap_wpa_ptk_rekey(dev, apdev):
@@ -321,15 +322,16 @@ def test_ap_wpa_ccmp(dev, apdev):
     params['wpa_pairwise'] = "CCMP"
     hapd = hostapd.add_ap(apdev[0], params)
     dev[0].connect(ssid, psk=passphrase, scan_freq="2412")
+    hapd.wait_sta()
     hwsim_utils.test_connectivity(dev[0], hapd)
-    check_mib(dev[0], [ ("dot11RSNAConfigGroupCipherSize", "128"),
-                        ("dot11RSNAGroupCipherRequested", "00-50-f2-4"),
-                        ("dot11RSNAPairwiseCipherRequested", "00-50-f2-4"),
-                        ("dot11RSNAAuthenticationSuiteRequested", "00-50-f2-2"),
-                        ("dot11RSNAGroupCipherSelected", "00-50-f2-4"),
-                        ("dot11RSNAPairwiseCipherSelected", "00-50-f2-4"),
-                        ("dot11RSNAAuthenticationSuiteSelected", "00-50-f2-2"),
-                        ("dot1xSuppSuppControlledPortStatus", "Authorized") ])
+    check_mib(dev[0], [("dot11RSNAConfigGroupCipherSize", "128"),
+                       ("dot11RSNAGroupCipherRequested", "00-50-f2-4"),
+                       ("dot11RSNAPairwiseCipherRequested", "00-50-f2-4"),
+                       ("dot11RSNAAuthenticationSuiteRequested", "00-50-f2-2"),
+                       ("dot11RSNAGroupCipherSelected", "00-50-f2-4"),
+                       ("dot11RSNAPairwiseCipherSelected", "00-50-f2-4"),
+                       ("dot11RSNAAuthenticationSuiteSelected", "00-50-f2-2"),
+                       ("dot1xSuppSuppControlledPortStatus", "Authorized")])
 
 def test_ap_wpa2_psk_file_errors(dev, apdev):
     """WPA2-PSK AP with various PSK file error and success cases"""
@@ -343,8 +345,8 @@ def test_ap_wpa2_psk_file_errors(dev, apdev):
     except:
         pass
 
-    params = { "ssid": ssid, "wpa": "2", "wpa_key_mgmt": "WPA-PSK",
-               "rsn_pairwise": "CCMP", "wpa_psk_file": pskfile }
+    params = {"ssid": ssid, "wpa": "2", "wpa_key_mgmt": "WPA-PSK",
+              "rsn_pairwise": "CCMP", "wpa_psk_file": pskfile}
 
     try:
         # missing PSK file
@@ -371,6 +373,13 @@ def test_ap_wpa2_psk_file_errors(dev, apdev):
         # invalid PSK
         with open(pskfile, "w") as f:
             f.write("00:11:22:33:44:55 1234567\n")
+        if "FAIL" not in hapd.request("ENABLE"):
+            raise Exception("Unexpected ENABLE success")
+        hapd.request("DISABLE")
+
+        # empty token at the end of the line
+        with open(pskfile, "w") as f:
+            f.write("=\n")
         if "FAIL" not in hapd.request("ENABLE"):
             raise Exception("Unexpected ENABLE success")
         hapd.request("DISABLE")
@@ -497,6 +506,8 @@ def test_ap_wpa2_bridge_fdb(dev, apdev):
                        bssid=apdev[0]['bssid'])
         dev[1].connect(ssid, psk=passphrase, scan_freq="2412",
                        bssid=apdev[0]['bssid'])
+        hapd.wait_sta()
+        hapd.wait_sta()
         addr0 = dev[0].p2p_interface_addr()
         hwsim_utils.test_connectivity_sta(dev[0], dev[1])
         err, macs1 = hapd.cmd_execute(['brctl', 'showmacs', 'ap-br0'])
@@ -567,6 +578,7 @@ def test_ap_wpa2_in_different_bridge(dev, apdev):
         if brname != 'ap-br0':
             raise Exception("Incorrect bridge: " + brname)
         dev[0].connect(ssid, psk=passphrase, scan_freq="2412")
+        hapd.wait_sta()
         hwsim_utils.test_connectivity_iface(dev[0], hapd, "ap-br0")
         if hapd.get_driver_status_field("added_bridge") != "1":
             raise Exception("Unexpected added_bridge value")
@@ -1187,7 +1199,7 @@ def test_ap_wpa2_psk_ext_delayed_ptk_rekey(dev, apdev):
     # Check if any more EAPOL-Key frames are seen. If the second 4-way handshake
     # was accepted, there would be no more EAPOL-Key frames. If the Replay
     # Counters were rejected, there would be a retransmitted msg 1/4 here.
-    ev = hapd.wait_event(["EAPOL-TX"], timeout=1)
+    ev = hapd.wait_event(["EAPOL-TX"], timeout=1.1)
     if ev is None:
         raise Exception("Did not see EAPOL-TX from hostapd in the end (expected msg 1/4)")
     keyinfo = ev.split(' ')[2][10:14]
@@ -1245,10 +1257,10 @@ def build_eapol(msg):
     return data
 
 def sha1_prf(key, label, data, outlen):
-    res = ''
+    res = b''
     counter = 0
     while outlen > 0:
-        m = hmac.new(key, label, hashlib.sha1)
+        m = hmac.new(key, label.encode(), hashlib.sha1)
         m.update(struct.pack('B', 0))
         m.update(data)
         m.update(struct.pack('B', counter))
@@ -1264,9 +1276,9 @@ def sha1_prf(key, label, data, outlen):
 
 def pmk_to_ptk(pmk, addr1, addr2, nonce1, nonce2):
     if addr1 < addr2:
-        data = binascii.unhexlify(addr1.replace(':','')) + binascii.unhexlify(addr2.replace(':',''))
+        data = binascii.unhexlify(addr1.replace(':', '')) + binascii.unhexlify(addr2.replace(':', ''))
     else:
-        data = binascii.unhexlify(addr2.replace(':','')) + binascii.unhexlify(addr1.replace(':',''))
+        data = binascii.unhexlify(addr2.replace(':', '')) + binascii.unhexlify(addr1.replace(':', ''))
     if nonce1 < nonce2:
         data += nonce1 + nonce2
     else:
@@ -1296,7 +1308,7 @@ def rsn_eapol_key_set(msg, key_info, key_len, nonce, data):
         msg['length'] = 95 + len(data)
     else:
         msg['rsn_key_data_len'] = 0
-        msg['rsn_key_data'] = ''
+        msg['rsn_key_data'] = b''
         msg['length'] = 95
 
 def recv_eapol(hapd):
@@ -1307,7 +1319,7 @@ def recv_eapol(hapd):
     return parse_eapol(eapol)
 
 def send_eapol(hapd, addr, data):
-    res = hapd.request("EAPOL_RX " + addr + " " + binascii.hexlify(data))
+    res = hapd.request("EAPOL_RX " + addr + " " + binascii.hexlify(data).decode())
     if "OK" not in res:
         raise Exception("EAPOL_RX to hostapd failed")
 
@@ -1322,7 +1334,7 @@ def hapd_connected(hapd):
     if ev is None:
         raise Exception("Timeout on AP-STA-CONNECTED from hostapd")
 
-def eapol_test(apdev, dev, wpa2=True):
+def eapol_test(apdev, dev, wpa2=True, ieee80211w=0):
     bssid = apdev['bssid']
     if wpa2:
         ssid = "test-wpa2-psk"
@@ -1335,22 +1347,27 @@ def eapol_test(apdev, dev, wpa2=True):
     else:
         params = hostapd.wpa_params(ssid=ssid)
     params['wpa_psk'] = psk
+    params['ieee80211w'] = str(ieee80211w)
     hapd = hostapd.add_ap(apdev, params)
     hapd.request("SET ext_eapol_frame_io 1")
     dev.request("SET ext_eapol_frame_io 1")
-    dev.connect(ssid, raw_psk=psk, scan_freq="2412", wait_connect=False)
+    dev.connect(ssid, raw_psk=psk, scan_freq="2412", wait_connect=False,
+                ieee80211w=str(ieee80211w))
     addr = dev.p2p_interface_addr()
     if wpa2:
-        rsne = binascii.unhexlify('30140100000fac040100000fac040100000fac020000')
+        if ieee80211w == 2:
+            rsne = binascii.unhexlify('30140100000fac040100000fac040100000fac02cc00')
+        else:
+            rsne = binascii.unhexlify('30140100000fac040100000fac040100000fac020000')
     else:
         rsne = binascii.unhexlify('dd160050f20101000050f20201000050f20201000050f202')
     snonce = binascii.unhexlify('1111111111111111111111111111111111111111111111111111111111111111')
-    return (bssid,ssid,hapd,snonce,pmk,addr,rsne)
+    return (bssid, ssid, hapd, snonce, pmk, addr, rsne)
 
 @remote_compatible
 def test_ap_wpa2_psk_ext_eapol(dev, apdev):
     """WPA2-PSK AP using external EAPOL supplicant"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     msg = recv_eapol(hapd)
     anonce = msg['rsn_key_nonce']
@@ -1378,7 +1395,7 @@ def test_ap_wpa2_psk_ext_eapol(dev, apdev):
 @remote_compatible
 def test_ap_wpa2_psk_ext_eapol_retry1(dev, apdev):
     """WPA2 4-way handshake with EAPOL-Key 1/4 retransmitted"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     msg1 = recv_eapol(hapd)
     anonce = msg1['rsn_key_nonce']
@@ -1405,7 +1422,7 @@ def test_ap_wpa2_psk_ext_eapol_retry1(dev, apdev):
 @remote_compatible
 def test_ap_wpa2_psk_ext_eapol_retry1b(dev, apdev):
     """WPA2 4-way handshake with EAPOL-Key 1/4 and 2/4 retransmitted"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     msg1 = recv_eapol(hapd)
     anonce = msg1['rsn_key_nonce']
@@ -1427,7 +1444,7 @@ def test_ap_wpa2_psk_ext_eapol_retry1b(dev, apdev):
 @remote_compatible
 def test_ap_wpa2_psk_ext_eapol_retry1c(dev, apdev):
     """WPA2 4-way handshake with EAPOL-Key 1/4 and 2/4 retransmitted and SNonce changing"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     msg1 = recv_eapol(hapd)
     anonce = msg1['rsn_key_nonce']
@@ -1451,7 +1468,7 @@ def test_ap_wpa2_psk_ext_eapol_retry1c(dev, apdev):
 @remote_compatible
 def test_ap_wpa2_psk_ext_eapol_retry1d(dev, apdev):
     """WPA2 4-way handshake with EAPOL-Key 1/4 and 2/4 retransmitted and SNonce changing and older used"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     msg1 = recv_eapol(hapd)
     anonce = msg1['rsn_key_nonce']
@@ -1475,7 +1492,7 @@ def test_ap_wpa2_psk_ext_eapol_retry1d(dev, apdev):
 @remote_compatible
 def test_ap_wpa2_psk_ext_eapol_type_diff(dev, apdev):
     """WPA2 4-way handshake using external EAPOL supplicant"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     msg = recv_eapol(hapd)
     anonce = msg['rsn_key_nonce']
@@ -1506,8 +1523,8 @@ def test_ap_wpa2_psk_ext_eapol_type_diff(dev, apdev):
 @remote_compatible
 def test_ap_wpa_psk_ext_eapol(dev, apdev):
     """WPA2-PSK AP using external EAPOL supplicant"""
-    (bssid,ssid,hapd,snonce,pmk,addr,wpae) = eapol_test(apdev[0], dev[0],
-                                                        wpa2=False)
+    (bssid, ssid, hapd, snonce, pmk, addr, wpae) = eapol_test(apdev[0], dev[0],
+                                                              wpa2=False)
 
     msg = recv_eapol(hapd)
     anonce = msg['rsn_key_nonce']
@@ -1534,7 +1551,7 @@ def test_ap_wpa_psk_ext_eapol(dev, apdev):
 @remote_compatible
 def test_ap_wpa2_psk_ext_eapol_key_info(dev, apdev):
     """WPA2-PSK 4-way handshake with strange key info values"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     msg = recv_eapol(hapd)
     anonce = msg['rsn_key_nonce']
@@ -1577,7 +1594,7 @@ def test_ap_wpa2_psk_ext_eapol_key_info(dev, apdev):
     reply_eapol("4/4", hapd, addr, msg, 0x030a, None, None, kck)
     hapd_connected(hapd)
 
-def build_eapol_key_1_4(anonce, replay_counter=1, key_data='', key_len=16):
+def build_eapol_key_1_4(anonce, replay_counter=1, key_data=b'', key_len=16):
     msg = {}
     msg['version'] = 2
     msg['type'] = 3
@@ -1617,7 +1634,7 @@ def build_eapol_key_3_4(anonce, kck, key_data, replay_counter=2,
     return msg
 
 def aes_wrap(kek, plain):
-    n = len(plain) / 8
+    n = len(plain) // 8
     a = 0xa6a6a6a6a6a6a6a6
     enc = AES.new(kek).encrypt
     r = [plain[i * 8:(i + 1) * 8] for i in range(0, n)]
@@ -1625,21 +1642,21 @@ def aes_wrap(kek, plain):
         for i in range(1, n + 1):
             b = enc(struct.pack('>Q', a) + r[i - 1])
             a = struct.unpack('>Q', b[:8])[0] ^ (n * j + i)
-            r[i - 1] =b[8:]
-    return struct.pack('>Q', a) + ''.join(r)
+            r[i - 1] = b[8:]
+    return struct.pack('>Q', a) + b''.join(r)
 
 def pad_key_data(plain):
     pad_len = len(plain) % 8
     if pad_len:
         pad_len = 8 - pad_len
-        plain += '\xdd'
+        plain += b'\xdd'
         pad_len -= 1
-        plain += pad_len * '\0'
+        plain += pad_len * b'\x00'
     return plain
 
 def test_ap_wpa2_psk_supp_proto(dev, apdev):
     """WPA2-PSK 4-way handshake protocol testing for supplicant"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
     msg = recv_eapol(hapd)
@@ -1658,7 +1675,7 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
 
     logger.debug("Invalid AES wrap data length 0")
     dev[0].dump_monitor()
-    msg = build_eapol_key_3_4(anonce, kck, '', replay_counter=counter)
+    msg = build_eapol_key_3_4(anonce, kck, b'', replay_counter=counter)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
     ev = dev[0].wait_event(["WPA: Unsupported AES-WRAP len 0"])
@@ -1667,7 +1684,7 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
 
     logger.debug("Invalid AES wrap data length 1")
     dev[0].dump_monitor()
-    msg = build_eapol_key_3_4(anonce, kck, '1', replay_counter=counter)
+    msg = build_eapol_key_3_4(anonce, kck, b'1', replay_counter=counter)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
     ev = dev[0].wait_event(["WPA: Unsupported AES-WRAP len 1"])
@@ -1676,7 +1693,7 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
 
     logger.debug("Invalid AES wrap data length 9")
     dev[0].dump_monitor()
-    msg = build_eapol_key_3_4(anonce, kck, '123456789', replay_counter=counter)
+    msg = build_eapol_key_3_4(anonce, kck, b'123456789', replay_counter=counter)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
     ev = dev[0].wait_event(["WPA: Unsupported AES-WRAP len 9"])
@@ -1685,7 +1702,7 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
 
     logger.debug("Invalid AES wrap data payload")
     dev[0].dump_monitor()
-    msg = build_eapol_key_3_4(anonce, kck, '12345678', replay_counter=counter)
+    msg = build_eapol_key_3_4(anonce, kck, b'12345678', replay_counter=counter)
     # do not increment counter to test replay protection
     send_eapol(dev[0], bssid, build_eapol(msg))
     ev = dev[0].wait_event(["WPA: AES unwrap failed"])
@@ -1694,7 +1711,7 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
 
     logger.debug("Replay Count not increasing")
     dev[0].dump_monitor()
-    msg = build_eapol_key_3_4(anonce, kck, '12345678', replay_counter=counter)
+    msg = build_eapol_key_3_4(anonce, kck, b'12345678', replay_counter=counter)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
     ev = dev[0].wait_event(["WPA: EAPOL-Key Replay Counter did not increase"])
@@ -1703,7 +1720,7 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
 
     logger.debug("Missing Ack bit in key info")
     dev[0].dump_monitor()
-    msg = build_eapol_key_3_4(anonce, kck, '12345678', replay_counter=counter,
+    msg = build_eapol_key_3_4(anonce, kck, b'12345678', replay_counter=counter,
                               key_info=0x134a)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
@@ -1713,7 +1730,7 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
 
     logger.debug("Unexpected Request bit in key info")
     dev[0].dump_monitor()
-    msg = build_eapol_key_3_4(anonce, kck, '12345678', replay_counter=counter,
+    msg = build_eapol_key_3_4(anonce, kck, b'12345678', replay_counter=counter,
                               key_info=0x1bca)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
@@ -1723,7 +1740,7 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
 
     logger.debug("Unsupported key descriptor version 0")
     dev[0].dump_monitor()
-    msg = build_eapol_key_3_4(anonce, kck, '0123456789abcdef',
+    msg = build_eapol_key_3_4(anonce, kck, b'0123456789abcdef',
                               replay_counter=counter, key_info=0x13c8)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
@@ -1733,7 +1750,7 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
 
     logger.debug("Key descriptor version 1 not allowed with CCMP")
     dev[0].dump_monitor()
-    msg = build_eapol_key_3_4(anonce, kck, '0123456789abcdef',
+    msg = build_eapol_key_3_4(anonce, kck, b'0123456789abcdef',
                               replay_counter=counter, key_info=0x13c9)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
@@ -1743,7 +1760,7 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
 
     logger.debug("Invalid AES wrap payload with key descriptor version 2")
     dev[0].dump_monitor()
-    msg = build_eapol_key_3_4(anonce, kck, '0123456789abcdef',
+    msg = build_eapol_key_3_4(anonce, kck, b'0123456789abcdef',
                               replay_counter=counter, key_info=0x13ca)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
@@ -1753,7 +1770,7 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
 
     logger.debug("Key descriptor version 3 workaround")
     dev[0].dump_monitor()
-    msg = build_eapol_key_3_4(anonce, kck, '0123456789abcdef',
+    msg = build_eapol_key_3_4(anonce, kck, b'0123456789abcdef',
                               replay_counter=counter, key_info=0x13cb)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
@@ -1769,7 +1786,7 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
 
     logger.debug("Unsupported key descriptor version 4")
     dev[0].dump_monitor()
-    msg = build_eapol_key_3_4(anonce, kck, '0123456789abcdef',
+    msg = build_eapol_key_3_4(anonce, kck, b'0123456789abcdef',
                               replay_counter=counter, key_info=0x13cc)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
@@ -1779,7 +1796,7 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
 
     logger.debug("Unsupported key descriptor version 7")
     dev[0].dump_monitor()
-    msg = build_eapol_key_3_4(anonce, kck, '0123456789abcdef',
+    msg = build_eapol_key_3_4(anonce, kck, b'0123456789abcdef',
                               replay_counter=counter, key_info=0x13cf)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
@@ -1789,7 +1806,7 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
 
     logger.debug("Too short EAPOL header length")
     dev[0].dump_monitor()
-    msg = build_eapol_key_3_4(anonce, kck, '12345678', replay_counter=counter,
+    msg = build_eapol_key_3_4(anonce, kck, b'12345678', replay_counter=counter,
                               extra_len=-1)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
@@ -1798,26 +1815,26 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
         raise Exception("Key data overflow not reported")
 
     logger.debug("Too long EAPOL header length")
-    msg = build_eapol_key_3_4(anonce, kck, '12345678', replay_counter=counter,
+    msg = build_eapol_key_3_4(anonce, kck, b'12345678', replay_counter=counter,
                               extra_len=1)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
 
     logger.debug("Unsupported descriptor type 0")
-    msg = build_eapol_key_3_4(anonce, kck, '12345678', replay_counter=counter,
+    msg = build_eapol_key_3_4(anonce, kck, b'12345678', replay_counter=counter,
                               descr_type=0)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
 
     logger.debug("WPA descriptor type 0")
-    msg = build_eapol_key_3_4(anonce, kck, '12345678', replay_counter=counter,
+    msg = build_eapol_key_3_4(anonce, kck, b'12345678', replay_counter=counter,
                               descr_type=254)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
 
     logger.debug("Non-zero key index for pairwise key")
     dev[0].dump_monitor()
-    wrapped = aes_wrap(kek, 16*'z')
+    wrapped = aes_wrap(kek, 16*b'z')
     msg = build_eapol_key_3_4(anonce, kck, wrapped, replay_counter=counter,
                               key_info=0x13ea)
     counter += 1
@@ -1828,7 +1845,7 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
 
     logger.debug("Invalid Key Data plaintext payload --> disconnect")
     dev[0].dump_monitor()
-    wrapped = aes_wrap(kek, 16*'z')
+    wrapped = aes_wrap(kek, 16*b'z')
     msg = build_eapol_key_3_4(anonce, kck, wrapped, replay_counter=counter)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
@@ -1836,7 +1853,7 @@ def test_ap_wpa2_psk_supp_proto(dev, apdev):
 
 def test_ap_wpa2_psk_supp_proto_no_ie(dev, apdev):
     """WPA2-PSK supplicant protocol testing: IE not included"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
     msg = recv_eapol(hapd)
@@ -1855,7 +1872,7 @@ def test_ap_wpa2_psk_supp_proto_no_ie(dev, apdev):
 
     logger.debug("No IEs in msg 3/4 --> disconnect")
     dev[0].dump_monitor()
-    wrapped = aes_wrap(kek, 16*'\0')
+    wrapped = aes_wrap(kek, 16*b'\x00')
     msg = build_eapol_key_3_4(anonce, kck, wrapped, replay_counter=counter)
     counter += 1
     send_eapol(dev[0], bssid, build_eapol(msg))
@@ -1863,7 +1880,7 @@ def test_ap_wpa2_psk_supp_proto_no_ie(dev, apdev):
 
 def test_ap_wpa2_psk_supp_proto_ie_mismatch(dev, apdev):
     """WPA2-PSK supplicant protocol testing: IE mismatch"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
     msg = recv_eapol(hapd)
@@ -1890,7 +1907,7 @@ def test_ap_wpa2_psk_supp_proto_ie_mismatch(dev, apdev):
 
 def test_ap_wpa2_psk_supp_proto_ok(dev, apdev):
     """WPA2-PSK supplicant protocol testing: success"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
     msg = recv_eapol(hapd)
@@ -1918,7 +1935,7 @@ def test_ap_wpa2_psk_supp_proto_ok(dev, apdev):
 
 def test_ap_wpa2_psk_supp_proto_no_gtk(dev, apdev):
     """WPA2-PSK supplicant protocol testing: no GTK"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
     msg = recv_eapol(hapd)
@@ -1948,7 +1965,7 @@ def test_ap_wpa2_psk_supp_proto_no_gtk(dev, apdev):
 
 def test_ap_wpa2_psk_supp_proto_anonce_change(dev, apdev):
     """WPA2-PSK supplicant protocol testing: ANonce change"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
     msg = recv_eapol(hapd)
@@ -1979,7 +1996,7 @@ def test_ap_wpa2_psk_supp_proto_anonce_change(dev, apdev):
 
 def test_ap_wpa2_psk_supp_proto_unexpected_group_msg(dev, apdev):
     """WPA2-PSK supplicant protocol testing: unexpected group message"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
     msg = recv_eapol(hapd)
@@ -2011,7 +2028,7 @@ def test_ap_wpa2_psk_supp_proto_unexpected_group_msg(dev, apdev):
 @remote_compatible
 def test_ap_wpa2_psk_supp_proto_msg_1_invalid_kde(dev, apdev):
     """WPA2-PSK supplicant protocol testing: invalid KDE in msg 1/4"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
     msg = recv_eapol(hapd)
@@ -2028,7 +2045,7 @@ def test_ap_wpa2_psk_supp_proto_msg_1_invalid_kde(dev, apdev):
 
 def test_ap_wpa2_psk_supp_proto_wrong_pairwise_key_len(dev, apdev):
     """WPA2-PSK supplicant protocol testing: wrong pairwise key length"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
     msg = recv_eapol(hapd)
@@ -2060,7 +2077,7 @@ def test_ap_wpa2_psk_supp_proto_wrong_pairwise_key_len(dev, apdev):
 
 def test_ap_wpa2_psk_supp_proto_wrong_group_key_len(dev, apdev):
     """WPA2-PSK supplicant protocol testing: wrong group key length"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
     msg = recv_eapol(hapd)
@@ -2091,7 +2108,7 @@ def test_ap_wpa2_psk_supp_proto_wrong_group_key_len(dev, apdev):
 
 def test_ap_wpa2_psk_supp_proto_gtk_tx_bit_workaround(dev, apdev):
     """WPA2-PSK supplicant protocol testing: GTK TX bit workaround"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
     msg = recv_eapol(hapd)
@@ -2122,7 +2139,7 @@ def test_ap_wpa2_psk_supp_proto_gtk_tx_bit_workaround(dev, apdev):
 
 def test_ap_wpa2_psk_supp_proto_gtk_keyidx_0_and_3(dev, apdev):
     """WPA2-PSK supplicant protocol testing: GTK key index 0 and 3"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
     msg = recv_eapol(hapd)
@@ -2175,7 +2192,7 @@ def test_ap_wpa2_psk_supp_proto_gtk_keyidx_0_and_3(dev, apdev):
 
 def test_ap_wpa2_psk_supp_proto_no_gtk_in_group_msg(dev, apdev):
     """WPA2-PSK supplicant protocol testing: GTK KDE missing from group msg"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
     msg = recv_eapol(hapd)
@@ -2216,7 +2233,7 @@ def test_ap_wpa2_psk_supp_proto_no_gtk_in_group_msg(dev, apdev):
 
 def test_ap_wpa2_psk_supp_proto_too_long_gtk_in_group_msg(dev, apdev):
     """WPA2-PSK supplicant protocol testing: too long GTK KDE in group msg"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
     msg = recv_eapol(hapd)
@@ -2257,7 +2274,7 @@ def test_ap_wpa2_psk_supp_proto_too_long_gtk_in_group_msg(dev, apdev):
 
 def test_ap_wpa2_psk_supp_proto_too_long_gtk_kde(dev, apdev):
     """WPA2-PSK supplicant protocol testing: too long GTK KDE"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
     msg = recv_eapol(hapd)
@@ -2285,7 +2302,7 @@ def test_ap_wpa2_psk_supp_proto_too_long_gtk_kde(dev, apdev):
 
 def test_ap_wpa2_psk_supp_proto_gtk_not_encrypted(dev, apdev):
     """WPA2-PSK supplicant protocol testing: GTK KDE not encrypted"""
-    (bssid,ssid,hapd,snonce,pmk,addr,rsne) = eapol_test(apdev[0], dev[0])
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0])
 
     # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
     msg = recv_eapol(hapd)
@@ -2314,6 +2331,87 @@ def test_ap_wpa2_psk_supp_proto_gtk_not_encrypted(dev, apdev):
         raise Exception("Unencrypted GTK KDE not reported")
     dev[0].wait_disconnected(timeout=1)
 
+def run_psk_supp_proto_pmf2(dev, apdev, igtk_kde=None, fail=False):
+    (bssid, ssid, hapd, snonce, pmk, addr, rsne) = eapol_test(apdev[0], dev[0],
+                                                              ieee80211w=2)
+
+    # Wait for EAPOL-Key msg 1/4 from hostapd to determine when associated
+    msg = recv_eapol(hapd)
+    dev[0].dump_monitor()
+
+    # Build own EAPOL-Key msg 1/4
+    anonce = binascii.unhexlify('2222222222222222222222222222222222222222222222222222222222222222')
+    counter = 1
+    msg = build_eapol_key_1_4(anonce, replay_counter=counter)
+    counter += 1
+    send_eapol(dev[0], bssid, build_eapol(msg))
+    msg = recv_eapol(dev[0])
+    snonce = msg['rsn_key_nonce']
+
+    (ptk, kck, kek) = pmk_to_ptk(pmk, addr, bssid, snonce, anonce)
+
+    logger.debug("EAPOL-Key msg 3/4")
+    dev[0].dump_monitor()
+    gtk_kde = binascii.unhexlify('dd16000fac010100dc11188831bf4aa4a8678d2b41498618')
+    plain = rsne + gtk_kde
+    if igtk_kde:
+        plain += igtk_kde
+    wrapped = aes_wrap(kek, pad_key_data(plain))
+    msg = build_eapol_key_3_4(anonce, kck, wrapped, replay_counter=counter)
+    counter += 1
+    send_eapol(dev[0], bssid, build_eapol(msg))
+    if fail:
+        dev[0].wait_disconnected(timeout=1)
+        return
+
+    dev[0].wait_connected(timeout=1)
+
+    # Verify that an unprotected broadcast Deauthentication frame is ignored
+    bssid = binascii.unhexlify(hapd.own_addr().replace(':', ''))
+    sock = start_monitor(apdev[1]["ifname"])
+    radiotap = radiotap_build()
+    frame = binascii.unhexlify("c0003a01")
+    frame += 6*b'\xff' + bssid + bssid
+    frame += binascii.unhexlify("1000" + "0300")
+    sock.send(radiotap + frame)
+    # And same with incorrect BIP protection
+    for keyid in ["0400", "0500", "0600", "0004", "0005", "0006", "ffff"]:
+        frame2 = frame + binascii.unhexlify("4c10" + keyid + "010000000000c0e5ca5f2b3b4de9")
+        sock.send(radiotap + frame2)
+    ev = dev[0].wait_event(["CTRL-EVENT-DISCONNECTED"], timeout=0.5)
+    if ev is not None:
+        raise Exception("Unexpected disconnection")
+
+def run_psk_supp_proto_pmf(dev, apdev, igtk_kde=None, fail=False):
+    try:
+        run_psk_supp_proto_pmf2(dev, apdev, igtk_kde=igtk_kde, fail=fail)
+    finally:
+        stop_monitor(apdev[1]["ifname"])
+
+def test_ap_wpa2_psk_supp_proto_no_igtk(dev, apdev):
+    """WPA2-PSK supplicant protocol testing: no IGTK KDE"""
+    run_psk_supp_proto_pmf(dev, apdev, igtk_kde=None)
+
+def test_ap_wpa2_psk_supp_proto_igtk_ok(dev, apdev):
+    """WPA2-PSK supplicant protocol testing: valid IGTK KDE"""
+    igtk_kde = binascii.unhexlify('dd1c' + '000fac09' + '0400' + 6*'00' + 16*'77')
+    run_psk_supp_proto_pmf(dev, apdev, igtk_kde=igtk_kde)
+
+def test_ap_wpa2_psk_supp_proto_igtk_keyid_swap(dev, apdev):
+    """WPA2-PSK supplicant protocol testing: swapped IGTK KeyID"""
+    igtk_kde = binascii.unhexlify('dd1c' + '000fac09' + '0004' + 6*'00' + 16*'77')
+    run_psk_supp_proto_pmf(dev, apdev, igtk_kde=igtk_kde)
+
+def test_ap_wpa2_psk_supp_proto_igtk_keyid_too_large(dev, apdev):
+    """WPA2-PSK supplicant protocol testing: too large IGTK KeyID"""
+    igtk_kde = binascii.unhexlify('dd1c' + '000fac09' + 'ffff' + 6*'00' + 16*'77')
+    run_psk_supp_proto_pmf(dev, apdev, igtk_kde=igtk_kde, fail=True)
+
+def test_ap_wpa2_psk_supp_proto_igtk_keyid_unexpected(dev, apdev):
+    """WPA2-PSK supplicant protocol testing: unexpected IGTK KeyID"""
+    igtk_kde = binascii.unhexlify('dd1c' + '000fac09' + '0006' + 6*'00' + 16*'77')
+    run_psk_supp_proto_pmf(dev, apdev, igtk_kde=igtk_kde, fail=True)
+
 def find_wpas_process(dev):
     ifname = dev.ifname
     err, data = dev.cmd_execute(['ps', 'ax'])
@@ -2329,7 +2427,7 @@ def read_process_memory(pid, key=None):
     buf = bytes()
     logger.info("Reading process memory (pid=%d)" % pid)
     with open('/proc/%d/maps' % pid, 'r') as maps, \
-         open('/proc/%d/mem' % pid, 'r') as mem:
+         open('/proc/%d/mem' % pid, 'rb') as mem:
         for l in maps.readlines():
             m = re.match(r'([0-9a-f]+)-([0-9a-f]+) ([-r][-w][-x][-p])', l)
             if not m:
@@ -2343,7 +2441,7 @@ def read_process_memory(pid, key=None):
                 continue
             if not perm.startswith('rw'):
                 continue
-            for name in [ "[heap]", "[stack]" ]:
+            for name in ["[heap]", "[stack]"]:
                 if name in l:
                     logger.info("%s 0x%x-0x%x is at %d-%d" % (name, start, end, len(buf), len(buf) + (end - start)))
             mem.seek(start)
@@ -2360,7 +2458,7 @@ def verify_not_present(buf, key, fname, keyname):
         return
 
     prefix = 2048 if pos > 2048 else pos
-    with open(fname + keyname, 'w') as f:
+    with open(fname + keyname, 'wb') as f:
         f.write(buf[pos - prefix:pos + 2048])
     raise Exception(keyname + " found after disassociation")
 
@@ -2499,8 +2597,8 @@ def test_ap_wpa2_psk_wep(dev, apdev):
 
 def test_ap_wpa2_psk_wpas_in_bridge(dev, apdev):
     """WPA2-PSK AP and wpas interface in a bridge"""
-    br_ifname='sta-br0'
-    ifname='wlan5'
+    br_ifname = 'sta-br0'
+    ifname = 'wlan5'
     try:
         _test_ap_wpa2_psk_wpas_in_bridge(dev, apdev)
     finally:
@@ -2515,8 +2613,8 @@ def _test_ap_wpa2_psk_wpas_in_bridge(dev, apdev):
     params = hostapd.wpa2_params(ssid=ssid, passphrase=passphrase)
     hapd = hostapd.add_ap(apdev[0], params)
 
-    br_ifname='sta-br0'
-    ifname='wlan5'
+    br_ifname = 'sta-br0'
+    ifname = 'wlan5'
     wpas = WpaSupplicant(global_iface='/tmp/wpas-wlan5')
     subprocess.call(['brctl', 'addbr', br_ifname])
     subprocess.call(['brctl', 'setfd', br_ifname, '0'])
@@ -2550,6 +2648,7 @@ def test_ap_wpa2_psk_ifdown(dev, apdev):
     if ev is None:
         raise Exception("No INTERFACE-ENABLED event")
     dev[0].wait_connected()
+    hapd.wait_sta()
     hwsim_utils.test_connectivity(dev[0], hapd)
 
 def test_ap_wpa2_psk_drop_first_msg_4(dev, apdev):
@@ -2635,6 +2734,7 @@ def test_ap_wpa2_psk_disable_enable(dev, apdev):
         dev[0].wait_disconnected()
         hapd.request("ENABLE")
         dev[0].wait_connected()
+        hapd.wait_sta()
         hwsim_utils.test_connectivity(dev[0], hapd)
 
 @remote_compatible
@@ -2668,29 +2768,29 @@ def test_ap_wpa_ie_parsing(dev, apdev):
     id = dev[0].connect(ssid, psk=passphrase, scan_freq="2412",
                         only_add_network=True)
 
-    tests = [ "dd040050f201",
-              "dd050050f20101",
-              "dd060050f2010100",
-              "dd060050f2010001",
-              "dd070050f201010000",
-              "dd080050f20101000050",
-              "dd090050f20101000050f2",
-              "dd0a0050f20101000050f202",
-              "dd0b0050f20101000050f20201",
-              "dd0c0050f20101000050f2020100",
-              "dd0c0050f20101000050f2020000",
-              "dd0c0050f20101000050f202ffff",
-              "dd0d0050f20101000050f202010000",
-              "dd0e0050f20101000050f20201000050",
-              "dd0f0050f20101000050f20201000050f2",
-              "dd100050f20101000050f20201000050f202",
-              "dd110050f20101000050f20201000050f20201",
-              "dd120050f20101000050f20201000050f2020100",
-              "dd120050f20101000050f20201000050f2020000",
-              "dd120050f20101000050f20201000050f202ffff",
-              "dd130050f20101000050f20201000050f202010000",
-              "dd140050f20101000050f20201000050f20201000050",
-              "dd150050f20101000050f20201000050f20201000050f2" ]
+    tests = ["dd040050f201",
+             "dd050050f20101",
+             "dd060050f2010100",
+             "dd060050f2010001",
+             "dd070050f201010000",
+             "dd080050f20101000050",
+             "dd090050f20101000050f2",
+             "dd0a0050f20101000050f202",
+             "dd0b0050f20101000050f20201",
+             "dd0c0050f20101000050f2020100",
+             "dd0c0050f20101000050f2020000",
+             "dd0c0050f20101000050f202ffff",
+             "dd0d0050f20101000050f202010000",
+             "dd0e0050f20101000050f20201000050",
+             "dd0f0050f20101000050f20201000050f2",
+             "dd100050f20101000050f20201000050f202",
+             "dd110050f20101000050f20201000050f20201",
+             "dd120050f20101000050f20201000050f2020100",
+             "dd120050f20101000050f20201000050f2020000",
+             "dd120050f20101000050f20201000050f202ffff",
+             "dd130050f20101000050f20201000050f202010000",
+             "dd140050f20101000050f20201000050f20201000050",
+             "dd150050f20101000050f20201000050f20201000050f2"]
     for t in tests:
         try:
             if "OK" not in dev[0].request("VENDOR_ELEM_ADD 13 " + t):
@@ -2704,15 +2804,18 @@ def test_ap_wpa_ie_parsing(dev, apdev):
         finally:
             dev[0].request("VENDOR_ELEM_REMOVE 13 *")
 
-    tests = [ "dd170050f20101000050f20201000050f20201000050f202ff",
-              "dd180050f20101000050f20201000050f20201000050f202ffff",
-              "dd190050f20101000050f20201000050f20201000050f202ffffff" ]
+    tests = ["dd170050f20101000050f20201000050f20201000050f202ff",
+             "dd180050f20101000050f20201000050f20201000050f202ffff",
+             "dd190050f20101000050f20201000050f20201000050f202ffffff"]
     for t in tests:
         try:
             if "OK" not in dev[0].request("VENDOR_ELEM_ADD 13 " + t):
                 raise Exception("VENDOR_ELEM_ADD failed")
             dev[0].select_network(id)
-            dev[0].wait_connected()
+            ev = dev[0].wait_event(['CTRL-EVENT-CONNECTED',
+                                    'WPA: 4-Way Handshake failed'], timeout=10)
+            if ev is None:
+                raise Exception("Association failed unexpectedly")
             dev[0].request("DISCONNECT")
             dev[0].dump_monitor()
         finally:
@@ -2751,25 +2854,25 @@ def test_rsn_ie_proto_psk_sta(dev, apdev):
         raise Exception("Invalid own_ie_override value accepted")
     id = dev[0].connect(ssid, psk=passphrase, scan_freq="2412")
 
-    tests = [ ('No RSN Capabilities field',
-               '30120100000fac040100000fac040100000fac02'),
-              ('Reserved RSN Capabilities bits set',
-               '30140100000fac040100000fac040100000fac023cff'),
-              ('Truncated RSN Capabilities field',
-               '30130100000fac040100000fac040100000fac023c'),
-              ('Extra pairwise cipher suite (unsupported)',
-               '30180100000fac040200ffffffff000fac040100000fac020c00'),
-              ('Extra AKM suite (unsupported)',
-               '30180100000fac040100000fac040200ffffffff000fac020c00'),
-              ('PMKIDCount field included',
-               '30160100000fac040100000fac040100000fac020c000000'),
-              ('Truncated PMKIDCount field',
-               '30150100000fac040100000fac040100000fac020c0000'),
-              ('Unexpected Group Management Cipher Suite with PMF disabled',
-               '301a0100000fac040100000fac040100000fac020c000000000fac06'),
-              ('Extra octet after defined fields (future extensibility)',
-               '301b0100000fac040100000fac040100000fac020c000000000fac0600') ]
-    for txt,ie in tests:
+    tests = [('No RSN Capabilities field',
+              '30120100000fac040100000fac040100000fac02'),
+             ('Reserved RSN Capabilities bits set',
+              '30140100000fac040100000fac040100000fac023cff'),
+             ('Truncated RSN Capabilities field',
+              '30130100000fac040100000fac040100000fac023c'),
+             ('Extra pairwise cipher suite (unsupported)',
+              '30180100000fac040200ffffffff000fac040100000fac020c00'),
+             ('Extra AKM suite (unsupported)',
+              '30180100000fac040100000fac040200ffffffff000fac020c00'),
+             ('PMKIDCount field included',
+              '30160100000fac040100000fac040100000fac020c000000'),
+             ('Truncated PMKIDCount field',
+              '30150100000fac040100000fac040100000fac020c0000'),
+             ('Unexpected Group Management Cipher Suite with PMF disabled',
+              '301a0100000fac040100000fac040100000fac020c000000000fac06'),
+             ('Extra octet after defined fields (future extensibility)',
+              '301b0100000fac040100000fac040100000fac020c000000000fac0600')]
+    for txt, ie in tests:
         dev[0].request("DISCONNECT")
         dev[0].wait_disconnected()
         dev[0].dump_monitor()
@@ -2821,10 +2924,10 @@ def test_ap_wpa2_psk_assoc_rsn(dev, apdev):
     params = hostapd.wpa2_params(ssid=ssid, passphrase=passphrase)
     hapd = hostapd.add_ap(apdev[0], params)
 
-    tests = [ ("Normal wpa_supplicant assoc req RSN IE",
-               "30140100000fac040100000fac040100000fac020000"),
-              ("RSN IE without RSN Capabilities",
-               "30120100000fac040100000fac040100000fac02") ]
+    tests = [("Normal wpa_supplicant assoc req RSN IE",
+              "30140100000fac040100000fac040100000fac020000"),
+             ("RSN IE without RSN Capabilities",
+              "30120100000fac040100000fac040100000fac02")]
     for title, ie in tests:
         logger.info(title)
         set_test_assoc_ie(dev[0], ie)
@@ -2832,11 +2935,11 @@ def test_ap_wpa2_psk_assoc_rsn(dev, apdev):
         dev[0].request("REMOVE_NETWORK all")
         dev[0].wait_disconnected()
 
-    tests = [ ("WPA IE instead of RSN IE and only RSN enabled on AP",
-               "dd160050f20101000050f20201000050f20201000050f202", 40),
-              ("Empty RSN IE", "3000", 40),
-              ("RSN IE with truncated Version", "300101", 40),
-              ("RSN IE with only Version", "30020100", 43) ]
+    tests = [("WPA IE instead of RSN IE and only RSN enabled on AP",
+              "dd160050f20101000050f20201000050f20201000050f202", 40),
+             ("Empty RSN IE", "3000", 40),
+             ("RSN IE with truncated Version", "300101", 40),
+             ("RSN IE with only Version", "30020100", 43)]
     for title, ie, status in tests:
         logger.info(title)
         set_test_assoc_ie(dev[0], ie)
@@ -2855,11 +2958,11 @@ def test_ap_wpa2_psk_ft_workaround(dev, apdev):
     ssid = "test-wpa2-psk-ft"
     passphrase = 'qwertyuiop'
 
-    params = { "wpa": "2",
-               "wpa_key_mgmt": "FT-PSK WPA-PSK",
-               "rsn_pairwise": "CCMP",
-               "ssid": ssid,
-               "wpa_passphrase": passphrase }
+    params = {"wpa": "2",
+              "wpa_key_mgmt": "FT-PSK WPA-PSK",
+              "rsn_pairwise": "CCMP",
+              "ssid": ssid,
+              "wpa_passphrase": passphrase}
     params["mobility_domain"] = "a1b2"
     params["r0_key_lifetime"] = "10000"
     params["pmk_r1_push"] = "1"
@@ -2889,8 +2992,8 @@ def test_ap_wpa2_psk_assoc_rsn_pmkid(dev, apdev):
 
 def test_ap_wpa_psk_rsn_pairwise(dev, apdev):
     """WPA-PSK AP and only rsn_pairwise set"""
-    params = { "ssid": "wpapsk", "wpa": "1", "wpa_key_mgmt": "WPA-PSK",
-               "rsn_pairwise": "TKIP", "wpa_passphrase": "1234567890" }
+    params = {"ssid": "wpapsk", "wpa": "1", "wpa_key_mgmt": "WPA-PSK",
+              "rsn_pairwise": "TKIP", "wpa_passphrase": "1234567890"}
     hapd = hostapd.add_ap(apdev[0], params)
     dev[0].connect("wpapsk", psk="1234567890", proto="WPA", pairwise="TKIP",
                    scan_freq="2412")
@@ -3079,3 +3182,29 @@ def test_ap_wpa2_psk_mic_0(dev, apdev):
     if "EAPOL-TX" in ev:
         raise Exception("Unexpected EAPOL-Key message from wpa_supplicant")
     dev[0].request("DISCONNECT")
+
+def test_ap_wpa2_psk_local_error(dev, apdev):
+    """WPA2-PSK and local error cases on supplicant"""
+    ssid = "test-wpa2-psk"
+    passphrase = 'qwertyuiop'
+    params = hostapd.wpa2_params(ssid=ssid, passphrase=passphrase)
+    params["wpa_key_mgmt"] = "WPA-PSK WPA-PSK-SHA256"
+    hapd = hostapd.add_ap(apdev[0], params)
+
+    with fail_test(dev[0], 1, "sha1_prf;wpa_pmk_to_ptk"):
+        id = dev[0].connect(ssid, key_mgmt="WPA-PSK", psk=passphrase,
+                            scan_freq="2412", wait_connect=False)
+        ev = dev[0].wait_event(["CTRL-EVENT-DISCONNECTED"], timeout=5)
+        if ev is None:
+            raise Exception("Disconnection event not reported")
+        dev[0].request("REMOVE_NETWORK all")
+        dev[0].dump_monitor()
+
+    with fail_test(dev[0], 1, "sha256_prf;wpa_pmk_to_ptk"):
+        id = dev[0].connect(ssid, key_mgmt="WPA-PSK-SHA256", psk=passphrase,
+                            scan_freq="2412", wait_connect=False)
+        ev = dev[0].wait_event(["CTRL-EVENT-DISCONNECTED"], timeout=5)
+        if ev is None:
+            raise Exception("Disconnection event not reported")
+        dev[0].request("REMOVE_NETWORK all")
+        dev[0].dump_monitor()

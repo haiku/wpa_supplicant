@@ -15,10 +15,10 @@
 #include "wps_supplicant.h"
 #include "binder/binder.h"
 #include "dbus/dbus_common.h"
-#include "dbus/dbus_old.h"
 #include "dbus/dbus_new.h"
 #include "rsn_supp/wpa.h"
 #include "fst/fst.h"
+#include "crypto/tls.h"
 #include "driver_i.h"
 #include "scan.h"
 #include "p2p_supplicant.h"
@@ -31,13 +31,13 @@
 
 int wpas_notify_supplicant_initialized(struct wpa_global *global)
 {
-#ifdef CONFIG_DBUS
+#ifdef CONFIG_CTRL_IFACE_DBUS_NEW
 	if (global->params.dbus_ctrl_interface) {
 		global->dbus = wpas_dbus_init(global);
 		if (global->dbus == NULL)
 			return -1;
 	}
-#endif /* CONFIG_DBUS */
+#endif /* CONFIG_CTRL_IFACE_DBUS_NEW */
 
 #ifdef CONFIG_BINDER
 	global->binder = wpas_binder_init(global);
@@ -51,10 +51,10 @@ int wpas_notify_supplicant_initialized(struct wpa_global *global)
 
 void wpas_notify_supplicant_deinitialized(struct wpa_global *global)
 {
-#ifdef CONFIG_DBUS
+#ifdef CONFIG_CTRL_IFACE_DBUS_NEW
 	if (global->dbus)
 		wpas_dbus_deinit(global->dbus);
-#endif /* CONFIG_DBUS */
+#endif /* CONFIG_CTRL_IFACE_DBUS_NEW */
 
 #ifdef CONFIG_BINDER
 	if (global->binder)
@@ -68,9 +68,6 @@ int wpas_notify_iface_added(struct wpa_supplicant *wpa_s)
 	if (wpa_s->p2p_mgmt)
 		return 0;
 
-	if (wpas_dbus_register_iface(wpa_s))
-		return -1;
-
 	if (wpas_dbus_register_interface(wpa_s))
 		return -1;
 
@@ -83,9 +80,6 @@ void wpas_notify_iface_removed(struct wpa_supplicant *wpa_s)
 	if (wpa_s->p2p_mgmt)
 		return;
 
-	/* unregister interface in old DBus ctrl iface */
-	wpas_dbus_unregister_iface(wpa_s);
-
 	/* unregister interface in new DBus ctrl iface */
 	wpas_dbus_unregister_interface(wpa_s);
 }
@@ -97,10 +91,6 @@ void wpas_notify_state_changed(struct wpa_supplicant *wpa_s,
 {
 	if (wpa_s->p2p_mgmt)
 		return;
-
-	/* notify the old DBus API */
-	wpa_supplicant_dbus_notify_state_change(wpa_s, new_state,
-						old_state);
 
 	/* notify the new DBus API */
 	wpas_dbus_signal_prop_changed(wpa_s, WPAS_DBUS_PROP_STATE);
@@ -275,9 +265,6 @@ void wpas_notify_scanning(struct wpa_supplicant *wpa_s)
 	if (wpa_s->p2p_mgmt)
 		return;
 
-	/* notify the old DBus API */
-	wpa_supplicant_dbus_notify_scanning(wpa_s);
-
 	/* notify the new DBus API */
 	wpas_dbus_signal_prop_changed(wpa_s, WPAS_DBUS_PROP_SCANNING);
 }
@@ -297,9 +284,6 @@ void wpas_notify_scan_results(struct wpa_supplicant *wpa_s)
 	if (wpa_s->p2p_mgmt)
 		return;
 
-	/* notify the old DBus API */
-	wpa_supplicant_dbus_notify_scan_results(wpa_s);
-
 	wpas_wps_notify_scan_results(wpa_s);
 }
 
@@ -311,8 +295,6 @@ void wpas_notify_wps_credential(struct wpa_supplicant *wpa_s,
 		return;
 
 #ifdef CONFIG_WPS
-	/* notify the old DBus API */
-	wpa_supplicant_dbus_notify_wps_cred(wpa_s, cred);
 	/* notify the new DBus API */
 	wpas_dbus_signal_wps_cred(wpa_s, cred);
 #endif /* CONFIG_WPS */
@@ -813,45 +795,41 @@ void wpas_notify_sta_authorized(struct wpa_supplicant *wpa_s,
 }
 
 
-void wpas_notify_certification(struct wpa_supplicant *wpa_s, int depth,
-			       const char *subject, const char *altsubject[],
-			       int num_altsubject, const char *cert_hash,
-			       const struct wpabuf *cert)
+void wpas_notify_certification(struct wpa_supplicant *wpa_s,
+			       struct tls_cert_data *cert,
+			       const char *cert_hash)
 {
-	wpa_msg(wpa_s, MSG_INFO, WPA_EVENT_EAP_PEER_CERT
-		"depth=%d subject='%s'%s%s",
-		depth, subject, cert_hash ? " hash=" : "",
-		cert_hash ? cert_hash : "");
+	int i;
 
-	if (cert) {
+	wpa_msg(wpa_s, MSG_INFO, WPA_EVENT_EAP_PEER_CERT
+		"depth=%d subject='%s'%s%s%s",
+		cert->depth, cert->subject, cert_hash ? " hash=" : "",
+		cert_hash ? cert_hash : "",
+		cert->tod ? " tod=1" : "");
+
+	if (cert->cert) {
 		char *cert_hex;
-		size_t len = wpabuf_len(cert) * 2 + 1;
+		size_t len = wpabuf_len(cert->cert) * 2 + 1;
 		cert_hex = os_malloc(len);
 		if (cert_hex) {
-			wpa_snprintf_hex(cert_hex, len, wpabuf_head(cert),
-					 wpabuf_len(cert));
+			wpa_snprintf_hex(cert_hex, len, wpabuf_head(cert->cert),
+					 wpabuf_len(cert->cert));
 			wpa_msg_ctrl(wpa_s, MSG_INFO,
 				     WPA_EVENT_EAP_PEER_CERT
 				     "depth=%d subject='%s' cert=%s",
-				     depth, subject, cert_hex);
+				     cert->depth, cert->subject, cert_hex);
 			os_free(cert_hex);
 		}
 	}
 
-	if (altsubject) {
-		int i;
+	for (i = 0; i < cert->num_altsubject; i++)
+		wpa_msg(wpa_s, MSG_INFO, WPA_EVENT_EAP_PEER_ALT
+			"depth=%d %s", cert->depth, cert->altsubject[i]);
 
-		for (i = 0; i < num_altsubject; i++)
-			wpa_msg(wpa_s, MSG_INFO, WPA_EVENT_EAP_PEER_ALT
-				"depth=%d %s", depth, altsubject[i]);
-	}
-
-	/* notify the old DBus API */
-	wpa_supplicant_dbus_notify_certification(wpa_s, depth, subject,
-						 cert_hash, cert);
 	/* notify the new DBus API */
-	wpas_dbus_signal_certification(wpa_s, depth, subject, altsubject,
-				       num_altsubject, cert_hash, cert);
+	wpas_dbus_signal_certification(wpa_s, cert->depth, cert->subject,
+				       cert->altsubject, cert->num_altsubject,
+				       cert_hash, cert->cert);
 }
 
 
@@ -931,7 +909,7 @@ void wpas_notify_mesh_group_started(struct wpa_supplicant *wpa_s,
 
 void wpas_notify_mesh_group_removed(struct wpa_supplicant *wpa_s,
 				    const u8 *meshid, u8 meshid_len,
-				    int reason_code)
+				    u16 reason_code)
 {
 	if (wpa_s->p2p_mgmt)
 		return;
@@ -952,7 +930,7 @@ void wpas_notify_mesh_peer_connected(struct wpa_supplicant *wpa_s,
 
 
 void wpas_notify_mesh_peer_disconnected(struct wpa_supplicant *wpa_s,
-					const u8 *peer_addr, int reason_code)
+					const u8 *peer_addr, u16 reason_code)
 {
 	if (wpa_s->p2p_mgmt)
 		return;

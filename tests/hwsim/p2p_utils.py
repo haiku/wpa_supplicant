@@ -1,5 +1,5 @@
 # P2P helper functions
-# Copyright (c) 2013-2015, Jouni Malinen <j@w1.fi>
+# Copyright (c) 2013-2019, Jouni Malinen <j@w1.fi>
 #
 # This software may be distributed under the terms of the BSD license.
 # See README for more details.
@@ -8,7 +8,10 @@ import logging
 logger = logging.getLogger()
 import threading
 import time
-import Queue
+try:
+    from Queue import Queue
+except ImportError:
+    from queue import Queue
 
 import hwsim_utils
 
@@ -102,6 +105,7 @@ def go_neg_pin_authorized_persistent(i_dev, r_dev, i_intent=None, r_intent=None,
 
 def terminate_group(go, cli):
     logger.info("Terminate persistent group")
+    cli.close_monitor_group()
     go.remove_group()
     cli.wait_go_ending_session()
 
@@ -238,7 +242,7 @@ def go_neg_pin(i_dev, r_dev, i_intent=None, r_intent=None, i_method='enter', r_m
     pin = r_dev.wps_read_pin()
     logger.info("Start GO negotiation " + i_dev.ifname + " -> " + r_dev.ifname)
     r_dev.dump_monitor()
-    res = Queue.Queue()
+    res = Queue()
     t = threading.Thread(target=go_neg_init, args=(i_dev, r_dev, pin, i_method, i_intent, res))
     t.start()
     logger.debug("Wait for GO Negotiation Request on r_dev")
@@ -318,7 +322,7 @@ def go_neg_pbc(i_dev, r_dev, i_intent=None, r_intent=None, i_freq=None, r_freq=N
     i_dev.p2p_find(social=True)
     logger.info("Start GO negotiation " + i_dev.ifname + " -> " + r_dev.ifname)
     r_dev.dump_monitor()
-    res = Queue.Queue()
+    res = Queue()
     t = threading.Thread(target=go_neg_init_pbc, args=(i_dev, r_dev, i_intent, res, i_freq, provdisc))
     t.start()
     logger.debug("Wait for GO Negotiation Request on r_dev")
@@ -364,8 +368,12 @@ def go_neg_pbc_authorized(i_dev, r_dev, i_intent=None, r_intent=None,
     logger.info("Group formed")
     return [i_res, r_res]
 
-def remove_group(dev1, dev2):
-    dev1.remove_group()
+def remove_group(dev1, dev2, allow_failure=False):
+    try:
+        dev1.remove_group()
+    except:
+        if not allow_failure:
+            raise
     try:
         dev2.remove_group()
     except:

@@ -20,7 +20,7 @@ def check_hs20_osu_client():
 
 def set_pps(pps_mo):
     res = subprocess.check_output(["../../hs20/client/hs20-osu-client",
-                                   "set_pps", pps_mo])
+                                   "set_pps", pps_mo]).decode()
     logger.info("set_pps result: " + res)
 
 def test_hs20_pps_mo_1(dev, apdev):
@@ -30,8 +30,8 @@ def test_hs20_pps_mo_1(dev, apdev):
     bssid = apdev[0]['bssid']
     params = hs20_ap_params()
     params['hessid'] = bssid
-    params['nai_realm'] = [ "0,w1.fi,13[5:6],21[2:4][5:7]",
-                            "0,another.example.com" ]
+    params['nai_realm'] = ["0,w1.fi,13[5:6],21[2:4][5:7]",
+                           "0,another.example.com"]
     params['domain_name'] = "w1.fi"
     hapd = hostapd.add_ap(apdev[0], params)
 

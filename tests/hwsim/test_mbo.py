@@ -90,24 +90,24 @@ def run_mbo_supp_oper_class(dev, apdev, country, expected, inc5,
                             freq_list=None, disable_ht=False,
                             disable_vht=False):
     if inc5:
-        params = { 'ssid': "test-wnm-mbo",
-                   'mbo': '1',
-                   "country_code": "US",
-                   'ieee80211d': '1',
-                   "ieee80211n": "1",
-                   "hw_mode": "a",
-                   "channel": "36" }
+        params = {'ssid': "test-wnm-mbo",
+                  'mbo': '1',
+                  "country_code": "US",
+                  'ieee80211d': '1',
+                  "ieee80211n": "1",
+                  "hw_mode": "a",
+                  "channel": "36"}
         hapd = hostapd.add_ap(apdev[0], params, no_enable=True)
     else:
         hapd = None
 
-    params = { 'ssid': "test-wnm-mbo-2",
-               'mbo': '1',
-               "country_code": "US",
-               'ieee80211d': '1',
-               "ieee80211n": "1",
-               "hw_mode": "g",
-               "channel": "1" }
+    params = {'ssid': "test-wnm-mbo-2",
+              'mbo': '1',
+              "country_code": "US",
+              'ieee80211d': '1',
+              "ieee80211n": "1",
+              "hw_mode": "g",
+              "channel": "1"}
     hapd2 = hostapd.add_ap(apdev[1], params, no_enable=True)
 
     try:
@@ -141,9 +141,14 @@ def run_mbo_supp_oper_class(dev, apdev, country, expected, inc5,
     # For now, allow operating classes 121-123 to be missing since not all
     # installed regdb files include the related US DFS channels.
     expected2 = expected2.replace('78797a7b7c', '787c')
-    if res2 != expected and res2 != expected2:
+    expected3 = expected
+    # For now, allow operating classes 124-127 to be missing for Finland
+    # since they were added only recently in regdb.
+    if country == "FI":
+        expected3 = expected3.replace("7b7c7d7e7f80", "7b80")
+    if res2 != expected and res2 != expected2 and res2 != expected3:
         raise Exception("Unexpected supp_op_class string (country=%s, 2.4 GHz): %s (expected: %s)" % (country, res2, expected))
-    if inc5 and res5 != expected and res5 != expected2:
+    if inc5 and res5 != expected and res5 != expected2 and res5 != expected3:
         raise Exception("Unexpected supp_op_class string (country=%s, 5 GHz): %s (expected: %s)" % (country, res5, expected))
 
 def test_mbo_supp_oper_classes_za(dev, apdev):
@@ -154,7 +159,7 @@ def test_mbo_supp_oper_classes_za(dev, apdev):
 def test_mbo_supp_oper_classes_fi(dev, apdev):
     """MBO and supported operating classes (FI)"""
     run_mbo_supp_oper_class(dev, apdev, "FI",
-                            "515354737475767778797a7b808182", True)
+                            "515354737475767778797a7b7c7d7e7f808182", True)
 
 def test_mbo_supp_oper_classes_us(dev, apdev):
     """MBO and supported operating classes (US)"""
@@ -194,8 +199,8 @@ def test_mbo_supp_oper_classes_us_disable_vht(dev, apdev):
 
 def test_mbo_assoc_disallow(dev, apdev, params):
     """MBO and association disallowed"""
-    hapd1 = hostapd.add_ap(apdev[0], { "ssid": "MBO", "mbo": "1" })
-    hapd2 = hostapd.add_ap(apdev[1], { "ssid": "MBO", "mbo": "1" })
+    hapd1 = hostapd.add_ap(apdev[0], {"ssid": "MBO", "mbo": "1"})
+    hapd2 = hostapd.add_ap(apdev[1], {"ssid": "MBO", "mbo": "1"})
 
     logger.debug("Set mbo_assoc_disallow with invalid value")
     if "FAIL" not in hapd1.request("SET mbo_assoc_disallow 2"):
@@ -247,7 +252,7 @@ def test_mbo_assoc_disallow_ignore(dev, apdev):
         dev[0].request("SCAN_INTERVAL 5")
 
 def _test_mbo_assoc_disallow_ignore(dev, apdev):
-    hapd1 = hostapd.add_ap(apdev[0], { "ssid": "MBO", "mbo": "1" })
+    hapd1 = hostapd.add_ap(apdev[0], {"ssid": "MBO", "mbo": "1"})
     if "OK" not in hapd1.request("SET mbo_assoc_disallow 1"):
         raise Exception("Failed to set mbo_assoc_disallow for AP1")
 
@@ -274,7 +279,7 @@ def _test_mbo_assoc_disallow_ignore(dev, apdev):
 def test_mbo_cell_capa_update(dev, apdev):
     """MBO cellular data capability update"""
     ssid = "test-wnm-mbo"
-    params = { 'ssid': ssid, 'mbo': '1' }
+    params = {'ssid': ssid, 'mbo': '1'}
     hapd = hostapd.add_ap(apdev[0], params)
     bssid = apdev[0]['bssid']
     if "OK" not in dev[0].request("SET mbo_cell_capa 1"):
@@ -335,7 +340,7 @@ def test_mbo_cell_capa_update_pmf(dev, apdev):
 def test_mbo_wnm_token_wrap(dev, apdev):
     """MBO WNM token wrap around"""
     ssid = "test-wnm-mbo"
-    params = { 'ssid': ssid, 'mbo': '1' }
+    params = {'ssid': ssid, 'mbo': '1'}
     hapd = hostapd.add_ap(apdev[0], params)
     bssid = apdev[0]['bssid']
 
@@ -353,7 +358,7 @@ def test_mbo_wnm_token_wrap(dev, apdev):
 def test_mbo_non_pref_chan(dev, apdev):
     """MBO non-preferred channel list"""
     ssid = "test-wnm-mbo"
-    params = { 'ssid': ssid, 'mbo': '1' }
+    params = {'ssid': ssid, 'mbo': '1'}
     hapd = hostapd.add_ap(apdev[0], params)
     bssid = apdev[0]['bssid']
     if "FAIL" not in dev[0].request("SET non_pref_chan 81:7:200:99"):
@@ -439,7 +444,7 @@ def test_mbo_non_pref_chan(dev, apdev):
 def test_mbo_sta_supp_op_classes(dev, apdev):
     """MBO STA supported operating classes"""
     ssid = "test-wnm-mbo"
-    params = { 'ssid': ssid, 'mbo': '1' }
+    params = {'ssid': ssid, 'mbo': '1'}
     hapd = hostapd.add_ap(apdev[0], params)
 
     dev[0].connect(ssid, key_mgmt="NONE", scan_freq="2412")
@@ -449,7 +454,7 @@ def test_mbo_sta_supp_op_classes(dev, apdev):
     logger.debug("STA: " + str(sta))
     if 'supp_op_classes' not in sta:
         raise Exception("No supp_op_classes")
-    supp = bytearray(sta['supp_op_classes'].decode("hex"))
+    supp = bytearray(binascii.unhexlify(sta['supp_op_classes']))
     if supp[0] != 81:
         raise Exception("Unexpected current operating class %d" % supp[0])
     if 115 not in supp:
@@ -458,7 +463,7 @@ def test_mbo_sta_supp_op_classes(dev, apdev):
 def test_mbo_failures(dev, apdev):
     """MBO failure cases"""
     ssid = "test-wnm-mbo"
-    params = { 'ssid': ssid, 'mbo': '1' }
+    params = {'ssid': ssid, 'mbo': '1'}
     hapd = hostapd.add_ap(apdev[0], params)
 
     with alloc_fail(dev[0], 1, "wpas_mbo_ie"):
@@ -491,15 +496,15 @@ def test_mbo_wnm_bss_tm_ie_parsing(dev, apdev):
     hdr = "d0003a01" + addr.replace(':', '') + bssid.replace(':', '') + bssid.replace(':', '') + "3000"
     btm_hdr = "0a070100030001"
 
-    tests = [ ("Truncated attribute in MBO IE", "dd06506f9a160101"),
-              ("Unexpected cell data capa attribute length in MBO IE",
-               "dd09506f9a160501030500"),
-              ("Unexpected transition reason attribute length in MBO IE",
-               "dd06506f9a160600"),
-              ("Unexpected assoc retry delay attribute length in MBO IE",
-               "dd0c506f9a160100080200000800"),
-              ("Unknown attribute id 255 in MBO IE",
-               "dd06506f9a16ff00") ]
+    tests = [("Truncated attribute in MBO IE", "dd06506f9a160101"),
+             ("Unexpected cell data capa attribute length in MBO IE",
+              "dd09506f9a160501030500"),
+             ("Unexpected transition reason attribute length in MBO IE",
+              "dd06506f9a160600"),
+             ("Unexpected assoc retry delay attribute length in MBO IE",
+              "dd0c506f9a160100080200000800"),
+             ("Unknown attribute id 255 in MBO IE",
+              "dd06506f9a16ff00")]
 
     for test, mbo_ie in tests:
         logger.info(test)
@@ -521,9 +526,9 @@ def test_mbo_wnm_bss_tm_ie_parsing(dev, apdev):
 def test_mbo_without_pmf(dev, apdev):
     """MBO and WPA2 without PMF"""
     ssid = "test-wnm-mbo"
-    params = { 'ssid': ssid, 'mbo': '1', "wpa": '2',
-               "wpa_key_mgmt": "WPA-PSK", "rsn_pairwise": "CCMP",
-               "wpa_passphrase": "12345678" }
+    params = {'ssid': ssid, 'mbo': '1', "wpa": '2',
+              "wpa_key_mgmt": "WPA-PSK", "rsn_pairwise": "CCMP",
+              "wpa_passphrase": "12345678"}
     try:
         # "MBO: PMF needs to be enabled whenever using WPA2 with MBO"
         hostapd.add_ap(apdev[0], params)
@@ -557,10 +562,10 @@ def check_mbo_anqp(dev, bssid, cell_data_conn_pref):
 
 def test_mbo_anqp(dev, apdev):
     """MBO ANQP"""
-    params = { 'ssid': "test-wnm-mbo",
-               'mbo': '1',
-               'interworking': '1',
-               'mbo_cell_data_conn_pref': '1' }
+    params = {'ssid': "test-wnm-mbo",
+              'mbo': '1',
+              'interworking': '1',
+              'mbo_cell_data_conn_pref': '1'}
     hapd = hostapd.add_ap(apdev[0], params)
     bssid = hapd.own_addr()
 

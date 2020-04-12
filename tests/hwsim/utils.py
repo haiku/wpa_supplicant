@@ -6,6 +6,7 @@
 
 import binascii
 import os
+import socket
 import struct
 import subprocess
 import time
@@ -112,7 +113,7 @@ def parse_ie(buf):
     ret = {}
     data = binascii.unhexlify(buf)
     while len(data) >= 2:
-        ie,elen = struct.unpack('BB', data[0:2])
+        ie, elen = struct.unpack('BB', data[0:2])
         data = data[2:]
         if elen > len(data):
             break
@@ -147,13 +148,19 @@ def clear_country(dev):
         dev[1].dump_monitor()
 
 def clear_regdom(hapd, dev, count=1):
+    disable_hapd(hapd)
+    clear_regdom_dev(dev, count)
+
+def disable_hapd(hapd):
     if hapd:
         hapd.request("DISABLE")
         time.sleep(0.1)
+
+def clear_regdom_dev(dev, count=1):
     for i in range(count):
         dev[i].request("DISCONNECT")
-        dev[i].request("ABORT_SCAN")
-    dev[0].wait_event(["CTRL-EVENT-DISCONNECTED"], timeout=0.5)
+    for i in range(count):
+        dev[i].disconnect_and_stop_scan()
     subprocess.call(['iw', 'reg', 'set', '00'])
     wait_regdom_changes(dev[0])
     country = dev[0].get_driver_status_field("country")
@@ -162,3 +169,27 @@ def clear_regdom(hapd, dev, count=1):
         clear_country(dev)
     for i in range(count):
         dev[i].flush_scan_cache()
+
+def radiotap_build():
+    radiotap_payload = struct.pack('BB', 0x08, 0)
+    radiotap_payload += struct.pack('BB', 0, 0)
+    radiotap_payload += struct.pack('BB', 0, 0)
+    radiotap_hdr = struct.pack('<BBHL', 0, 0, 8 + len(radiotap_payload),
+                               0xc002)
+    return radiotap_hdr + radiotap_payload
+
+def start_monitor(ifname, freq=2412):
+    subprocess.check_call(["iw", ifname, "set", "type", "monitor"])
+    subprocess.call(["ip", "link", "set", "dev", ifname, "up"])
+    subprocess.check_call(["iw", ifname, "set", "freq", str(freq)])
+
+    ETH_P_ALL = 3
+    sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW,
+                         socket.htons(ETH_P_ALL))
+    sock.bind((ifname, 0))
+    sock.settimeout(0.5)
+    return sock
+
+def stop_monitor(ifname):
+    subprocess.call(["ip", "link", "set", "dev", ifname, "down"])
+    subprocess.call(["iw", ifname, "set", "type", "managed"])

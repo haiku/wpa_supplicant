@@ -1,6 +1,6 @@
 /*
  * Control interface for shared AP commands
- * Copyright (c) 2004-2014, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2004-2019, Jouni Malinen <j@w1.fi>
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -451,11 +451,11 @@ static int p2p_manager_disconnect(struct hostapd_data *hapd, u16 stype,
 	if (stype == WLAN_FC_STYPE_DEAUTH) {
 		mgmt->u.deauth.reason_code =
 			host_to_le16(WLAN_REASON_PREV_AUTH_NOT_VALID);
-		pos = (u8 *) (&mgmt->u.deauth.reason_code + 1);
+		pos = mgmt->u.deauth.variable;
 	} else {
 		mgmt->u.disassoc.reason_code =
 			host_to_le16(WLAN_REASON_PREV_AUTH_NOT_VALID);
-		pos = (u8 *) (&mgmt->u.disassoc.reason_code + 1);
+		pos = mgmt->u.disassoc.variable;
 	}
 
 	*pos++ = WLAN_EID_VENDOR_SPECIFIC;
@@ -712,6 +712,7 @@ int hostapd_ctrl_iface_status(struct hostapd_data *hapd, char *buf,
 			  "secondary_channel=%d\n"
 			  "ieee80211n=%d\n"
 			  "ieee80211ac=%d\n"
+			  "ieee80211ax=%d\n"
 			  "beacon_int=%u\n"
 			  "dtim_period=%d\n",
 			  iface->conf->channel,
@@ -720,6 +721,7 @@ int hostapd_ctrl_iface_status(struct hostapd_data *hapd, char *buf,
 			  iface->conf->ieee80211n && !hapd->conf->disable_11n,
 			  iface->conf->ieee80211ac &&
 			  !hapd->conf->disable_11ac,
+			  iface->conf->ieee80211ax,
 			  iface->conf->beacon_int,
 			  hapd->conf->dtim_period);
 	if (os_snprintf_error(buflen - len, ret))

@@ -493,7 +493,7 @@ static void write_str(FILE *f, const char *field, struct wpa_ssid *ssid)
 	if (value == NULL)
 		return;
 	fprintf(f, "\t%s=%s\n", field, value);
-	os_free(value);
+	str_clear_free(value);
 }
 
 
@@ -782,6 +782,7 @@ static void wpa_config_write_network(FILE *f, struct wpa_ssid *ssid)
 	STR(private_key_passwd);
 	STR(dh_file);
 	STR(subject_match);
+	STR(check_cert_subject);
 	STR(altsubject_match);
 	STR(domain_suffix_match);
 	STR(domain_match);
@@ -792,6 +793,7 @@ static void wpa_config_write_network(FILE *f, struct wpa_ssid *ssid)
 	STR(private_key2_passwd);
 	STR(dh_file2);
 	STR(subject_match2);
+	STR(check_cert_subject2);
 	STR(altsubject_match2);
 	STR(domain_suffix_match2);
 	STR(domain_match2);
@@ -892,6 +894,7 @@ static void wpa_config_write_network(FILE *f, struct wpa_ssid *ssid)
 	INT(owe_group);
 	INT(owe_only);
 	INT(multi_ap_backhaul_sta);
+	INT(ft_eap_pmksa_caching);
 #ifdef CONFIG_HT_OVERRIDES
 	INT_DEF(disable_ht, DEFAULT_DISABLE_HT);
 	INT_DEF(disable_ht40, DEFAULT_DISABLE_HT40);
@@ -1187,6 +1190,9 @@ static void wpa_config_write_global(FILE *f, struct wpa_config *config)
 	if (config->wps_cred_processing)
 		fprintf(f, "wps_cred_processing=%d\n",
 			config->wps_cred_processing);
+	if (config->wps_cred_add_sae)
+		fprintf(f, "wps_cred_add_sae=%d\n",
+			config->wps_cred_add_sae);
 	if (config->wps_vendor_ext_m1) {
 		int i, len = wpabuf_len(config->wps_vendor_ext_m1);
 		const u8 *p = wpabuf_head_u8(config->wps_vendor_ext_m1);
@@ -1539,6 +1545,8 @@ static void wpa_config_write_global(FILE *f, struct wpa_config *config)
 	if (config->p2p_interface_random_mac_addr)
 		fprintf(f, "p2p_interface_random_mac_addr=%d\n",
 			config->p2p_interface_random_mac_addr);
+	if (config->disable_btm)
+		fprintf(f, "disable_btm=1\n");
 }
 
 #endif /* CONFIG_NO_CONFIG_WRITE */

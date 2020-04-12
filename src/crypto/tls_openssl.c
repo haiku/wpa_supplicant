@@ -44,6 +44,13 @@
 #define OPENSSL_NEED_EAP_FAST_PRF
 #endif
 
+#if defined(EAP_FAST) || defined(EAP_FAST_DYNAMIC) || \
+	defined(EAP_SERVER_FAST) || defined(EAP_TEAP) || \
+	defined(EAP_SERVER_TEAP)
+#define EAP_FAST_OR_TEAP
+#endif
+
+
 #if defined(OPENSSL_IS_BORINGSSL)
 /* stack_index_t is the return type of OpenSSL's sk_XXX_num() functions. */
 typedef size_t stack_index_t;
@@ -219,6 +226,7 @@ struct tls_data {
 	char *ca_cert;
 	unsigned int crl_reload_interval;
 	struct os_reltime crl_last_reload;
+	char *check_cert_subject;
 };
 
 struct tls_connection {
@@ -232,6 +240,7 @@ struct tls_connection {
 	EVP_PKEY *private_key; /* the private key if using engine */
 #endif /* OPENSSL_NO_ENGINE */
 	char *subject_match, *altsubject_match, *suffix_match, *domain_match;
+	char *check_cert_subject;
 	int read_alerts, write_alerts, failed;
 
 	tls_session_ticket_cb session_ticket_cb;
@@ -329,8 +338,7 @@ static X509_STORE * tls_crl_cert_reload(const char *ca_cert, int check_crl)
 		return NULL;
 	}
 
-	if (check_crl)
-		flags = X509_V_FLAG_CRL_CHECK;
+	flags = check_crl ? X509_V_FLAG_CRL_CHECK : 0;
 	if (check_crl == 2)
 		flags |= X509_V_FLAG_CRL_CHECK_ALL;
 
@@ -1070,11 +1078,8 @@ void * tls_init(const struct tls_config *conf)
 	}
 
 #ifndef OPENSSL_NO_ENGINE
-	wpa_printf(MSG_DEBUG, "ENGINE: Loading dynamic engine");
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	ERR_load_ENGINE_strings();
-	ENGINE_load_dynamic();
-#endif /* OPENSSL_VERSION_NUMBER */
+	wpa_printf(MSG_DEBUG, "ENGINE: Loading builtin engines");
+	ENGINE_load_builtin_engines();
 
 	if (conf &&
 	    (conf->opensc_engine_path || conf->pkcs11_engine_path ||
@@ -1135,6 +1140,7 @@ void tls_deinit(void *ssl_ctx)
 		tls_global = NULL;
 	}
 
+	os_free(data->check_cert_subject);
 	os_free(data);
 }
 
@@ -1329,6 +1335,8 @@ static const char * openssl_content_type(int content_type)
 		return "heartbeat";
 	case 256:
 		return "TLS header info"; /* pseudo content type */
+	case 257:
+		return "inner content type"; /* pseudo content type */
 	default:
 		return "?";
 	}
@@ -1338,6 +1346,8 @@ static const char * openssl_content_type(int content_type)
 static const char * openssl_handshake_type(int content_type, const u8 *buf,
 					   size_t len)
 {
+	if (content_type == 257 && buf && len == 1)
+		return openssl_content_type(buf[0]);
 	if (content_type != 22 || !buf || len == 0)
 		return "";
 	switch (buf[0]) {
@@ -1347,8 +1357,16 @@ static const char * openssl_handshake_type(int content_type, const u8 *buf,
 		return "client hello";
 	case 2:
 		return "server hello";
+	case 3:
+		return "hello verify request";
 	case 4:
 		return "new session ticket";
+	case 5:
+		return "end of early data";
+	case 6:
+		return "hello retry request";
+	case 8:
+		return "encrypted extensions";
 	case 11:
 		return "certificate";
 	case 12:
@@ -1367,6 +1385,12 @@ static const char * openssl_handshake_type(int content_type, const u8 *buf,
 		return "certificate url";
 	case 22:
 		return "certificate status";
+	case 23:
+		return "supplemental data";
+	case 24:
+		return "key update";
+	case 254:
+		return "message hash";
 	default:
 		return "?";
 	}
@@ -1554,6 +1578,11 @@ struct tls_connection * tls_connection_init(void *ssl_ctx)
 	options |= SSL_OP_NO_COMPRESSION;
 #endif /* SSL_OP_NO_COMPRESSION */
 	SSL_set_options(conn->ssl, options);
+#ifdef SSL_OP_ENABLE_MIDDLEBOX_COMPAT
+	/* Hopefully there is no need for middlebox compatibility mechanisms
+	 * when going through EAP authentication. */
+	SSL_clear_options(conn->ssl, SSL_OP_ENABLE_MIDDLEBOX_COMPAT);
+#endif
 
 	conn->ssl_in = BIO_new(BIO_s_mem());
 	if (!conn->ssl_in) {
@@ -1598,6 +1627,7 @@ void tls_connection_deinit(void *ssl_ctx, struct tls_connection *conn)
 	os_free(conn->altsubject_match);
 	os_free(conn->suffix_match);
 	os_free(conn->domain_match);
+	os_free(conn->check_cert_subject);
 	os_free(conn->session_ticket);
 	os_free(conn);
 }
@@ -1718,9 +1748,9 @@ static int tls_match_altsubject(X509 *cert, const char *match)
 
 #ifndef CONFIG_NATIVE_WINDOWS
 static int domain_suffix_match(const u8 *val, size_t len, const char *match,
-			       int full)
+			       size_t match_len, int full)
 {
-	size_t i, match_len;
+	size_t i;
 
 	/* Check for embedded nuls that could mess up suffix matching */
 	for (i = 0; i < len; i++) {
@@ -1730,7 +1760,6 @@ static int domain_suffix_match(const u8 *val, size_t len, const char *match,
 		}
 	}
 
-	match_len = os_strlen(match);
 	if (match_len > len || (full && match_len != len))
 		return 0;
 
@@ -1750,12 +1779,223 @@ static int domain_suffix_match(const u8 *val, size_t len, const char *match,
 #endif /* CONFIG_NATIVE_WINDOWS */
 
 
-static int tls_match_suffix(X509 *cert, const char *match, int full)
+struct tls_dn_field_order_cnt {
+	u8 cn;
+	u8 c;
+	u8 l;
+	u8 st;
+	u8 o;
+	u8 ou;
+	u8 email;
+};
+
+
+static int get_dn_field_index(const struct tls_dn_field_order_cnt *dn_cnt,
+			      int nid)
 {
-#ifdef CONFIG_NATIVE_WINDOWS
-	/* wincrypt.h has conflicting X509_NAME definition */
-	return -1;
-#else /* CONFIG_NATIVE_WINDOWS */
+	switch (nid) {
+	case NID_commonName:
+		return dn_cnt->cn;
+	case NID_countryName:
+		return dn_cnt->c;
+	case NID_localityName:
+		return dn_cnt->l;
+	case NID_stateOrProvinceName:
+		return dn_cnt->st;
+	case NID_organizationName:
+		return dn_cnt->o;
+	case NID_organizationalUnitName:
+		return dn_cnt->ou;
+	case NID_pkcs9_emailAddress:
+		return dn_cnt->email;
+	default:
+		wpa_printf(MSG_ERROR,
+			   "TLS: Unknown NID '%d' in check_cert_subject",
+			   nid);
+		return -1;
+	}
+}
+
+
+/**
+ * match_dn_field - Match configuration DN field against Certificate DN field
+ * @cert: Certificate
+ * @nid: NID of DN field
+ * @field: Field name
+ * @value DN field value which is passed from configuration
+ *	e.g., if configuration have C=US and this argument will point to US.
+ * @dn_cnt: DN matching context
+ * Returns: 1 on success and 0 on failure
+ */
+static int match_dn_field(const X509 *cert, int nid, const char *field,
+			  const char *value,
+			  const struct tls_dn_field_order_cnt *dn_cnt)
+{
+	int i, ret = 0, len, config_dn_field_index, match_index = 0;
+	X509_NAME *name;
+
+	len = os_strlen(value);
+	name = X509_get_subject_name((X509 *) cert);
+
+	/* Assign incremented cnt for every field of DN to check DN field in
+	 * right order */
+	config_dn_field_index = get_dn_field_index(dn_cnt, nid);
+	if (config_dn_field_index < 0)
+		return 0;
+
+	/* Fetch value based on NID */
+	for (i = -1; (i = X509_NAME_get_index_by_NID(name, nid, i)) > -1;) {
+		X509_NAME_ENTRY *e;
+		ASN1_STRING *cn;
+
+		e = X509_NAME_get_entry(name, i);
+		if (!e)
+			continue;
+
+		cn = X509_NAME_ENTRY_get_data(e);
+		if (!cn)
+			continue;
+
+		match_index++;
+
+		/* check for more than one DN field with same name */
+		if (match_index != config_dn_field_index)
+			continue;
+
+		/* Check wildcard at the right end side */
+		/* E.g., if OU=develop* mentioned in configuration, allow 'OU'
+		 * of the subject in the client certificate to start with
+		 * 'develop' */
+		if (len > 0 && value[len - 1] == '*') {
+			/* Compare actual certificate DN field value with
+			 * configuration DN field value up to the specified
+			 * length. */
+			ret = ASN1_STRING_length(cn) >= len - 1 &&
+				os_memcmp(ASN1_STRING_get0_data(cn), value,
+					  len - 1) == 0;
+		} else {
+			/* Compare actual certificate DN field value with
+			 * configuration DN field value */
+			ret = ASN1_STRING_length(cn) == len &&
+				os_memcmp(ASN1_STRING_get0_data(cn), value,
+					  len) == 0;
+		}
+		if (!ret) {
+			wpa_printf(MSG_ERROR,
+				   "OpenSSL: Failed to match %s '%s' with certificate DN field value '%s'",
+				   field, value, ASN1_STRING_get0_data(cn));
+		}
+		break;
+	}
+
+	return ret;
+}
+
+
+/**
+ * get_value_from_field - Get value from DN field
+ * @cert: Certificate
+ * @field_str: DN field string which is passed from configuration file (e.g.,
+ *	 C=US)
+ * @dn_cnt: DN matching context
+ * Returns: 1 on success and 0 on failure
+ */
+static int get_value_from_field(const X509 *cert, char *field_str,
+				struct tls_dn_field_order_cnt *dn_cnt)
+{
+	int nid;
+	char *context = NULL, *name, *value;
+
+	if (os_strcmp(field_str, "*") == 0)
+		return 1; /* wildcard matches everything */
+
+	name = str_token(field_str, "=", &context);
+	if (!name)
+		return 0;
+
+	/* Compare all configured DN fields and assign nid based on that to
+	 * fetch correct value from certificate subject */
+	if (os_strcmp(name, "CN") == 0) {
+		nid = NID_commonName;
+		dn_cnt->cn++;
+	} else if(os_strcmp(name, "C") == 0) {
+		nid = NID_countryName;
+		dn_cnt->c++;
+	} else if (os_strcmp(name, "L") == 0) {
+		nid = NID_localityName;
+		dn_cnt->l++;
+	} else if (os_strcmp(name, "ST") == 0) {
+		nid = NID_stateOrProvinceName;
+		dn_cnt->st++;
+	} else if (os_strcmp(name, "O") == 0) {
+		nid = NID_organizationName;
+		dn_cnt->o++;
+	} else if (os_strcmp(name, "OU") == 0) {
+		nid = NID_organizationalUnitName;
+		dn_cnt->ou++;
+	} else if (os_strcmp(name, "emailAddress") == 0) {
+		nid = NID_pkcs9_emailAddress;
+		dn_cnt->email++;
+	} else {
+		wpa_printf(MSG_ERROR,
+			"TLS: Unknown field '%s' in check_cert_subject", name);
+		return 0;
+	}
+
+	value = str_token(field_str, "=", &context);
+	if (!value) {
+		wpa_printf(MSG_ERROR,
+			   "TLS: Distinguished Name field '%s' value is not defined in check_cert_subject",
+			   name);
+		return 0;
+	}
+
+	return match_dn_field(cert, nid, name, value, dn_cnt);
+}
+
+
+/**
+ * tls_match_dn_field - Match subject DN field with check_cert_subject
+ * @cert: Certificate
+ * @match: check_cert_subject string
+ * Returns: Return 1 on success and 0 on failure
+*/
+static int tls_match_dn_field(X509 *cert, const char *match)
+{
+	const char *token, *last = NULL;
+	char field[256];
+	struct tls_dn_field_order_cnt dn_cnt;
+
+	os_memset(&dn_cnt, 0, sizeof(dn_cnt));
+
+	/* Maximum length of each DN field is 255 characters */
+
+	/* Process each '/' delimited field */
+	while ((token = cstr_token(match, "/", &last))) {
+		if (last - token >= (int) sizeof(field)) {
+			wpa_printf(MSG_ERROR,
+				   "OpenSSL: Too long DN matching field value in '%s'",
+				   match);
+			return 0;
+		}
+		os_memcpy(field, token, last - token);
+		field[last - token] = '\0';
+
+		if (!get_value_from_field(cert, field, &dn_cnt)) {
+			wpa_printf(MSG_DEBUG, "OpenSSL: No match for DN '%s'",
+				   field);
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+
+#ifndef CONFIG_NATIVE_WINDOWS
+static int tls_match_suffix_helper(X509 *cert, const char *match,
+				   size_t match_len, int full)
+{
 	GENERAL_NAME *gen;
 	void *ext;
 	int i;
@@ -1777,8 +2017,8 @@ static int tls_match_suffix(X509 *cert, const char *match, int full)
 				  gen->d.dNSName->data,
 				  gen->d.dNSName->length);
 		if (domain_suffix_match(gen->d.dNSName->data,
-					gen->d.dNSName->length, match, full) ==
-		    1) {
+					gen->d.dNSName->length,
+					match, match_len, full) == 1) {
 			wpa_printf(MSG_DEBUG, "TLS: %s in dNSName found",
 				   full ? "Match" : "Suffix match");
 			sk_GENERAL_NAME_pop_free(ext, GENERAL_NAME_free);
@@ -1809,8 +2049,8 @@ static int tls_match_suffix(X509 *cert, const char *match, int full)
 			continue;
 		wpa_hexdump_ascii(MSG_DEBUG, "TLS: Certificate commonName",
 				  cn->data, cn->length);
-		if (domain_suffix_match(cn->data, cn->length, match, full) == 1)
-		{
+		if (domain_suffix_match(cn->data, cn->length,
+					match, match_len, full) == 1) {
 			wpa_printf(MSG_DEBUG, "TLS: %s in commonName found",
 				   full ? "Match" : "Suffix match");
 			return 1;
@@ -1819,6 +2059,25 @@ static int tls_match_suffix(X509 *cert, const char *match, int full)
 
 	wpa_printf(MSG_DEBUG, "TLS: No CommonName %smatch found",
 		   full ? "": "suffix ");
+	return 0;
+}
+#endif /* CONFIG_NATIVE_WINDOWS */
+
+
+static int tls_match_suffix(X509 *cert, const char *match, int full)
+{
+#ifdef CONFIG_NATIVE_WINDOWS
+	/* wincrypt.h has conflicting X509_NAME definition */
+	return -1;
+#else /* CONFIG_NATIVE_WINDOWS */
+	const char *token, *last = NULL;
+
+	/* Process each match alternative separately until a match is found */
+	while ((token = cstr_token(match, ";", &last))) {
+		if (tls_match_suffix_helper(cert, token, last - token, full))
+			return 1;
+	}
+
 	return 0;
 #endif /* CONFIG_NATIVE_WINDOWS */
 }
@@ -1903,6 +2162,34 @@ static void openssl_tls_fail_event(struct tls_connection *conn,
 	ev.cert_fail.cert = cert;
 	context->event_cb(context->cb_ctx, TLS_CERT_CHAIN_FAILURE, &ev);
 	wpabuf_free(cert);
+}
+
+
+static int openssl_cert_tod(X509 *cert)
+{
+	CERTIFICATEPOLICIES *ext;
+	stack_index_t i;
+	char buf[100];
+	int res;
+	int tod = 0;
+
+	ext = X509_get_ext_d2i(cert, NID_certificate_policies, NULL, NULL);
+	if (!ext)
+		return 0;
+
+	for (i = 0; i < sk_POLICYINFO_num(ext); i++) {
+		POLICYINFO *policy;
+
+		policy = sk_POLICYINFO_value(ext, i);
+		res = OBJ_obj2txt(buf, sizeof(buf), policy->policyid, 0);
+		if (res < 0 || (size_t) res >= sizeof(buf))
+			continue;
+		wpa_printf(MSG_DEBUG, "OpenSSL: Certificate Policy %s", buf);
+		if (os_strcmp(buf, "1.3.6.1.4.1.40808.1.3.1") == 0)
+			tod = 1;
+	}
+
+	return tod;
 }
 
 
@@ -1998,6 +2285,8 @@ static void openssl_tls_cert_event(struct tls_connection *conn,
 		ev.peer_cert.altsubject[alt] = altsubject[alt];
 	ev.peer_cert.num_altsubject = num_altsubject;
 
+	ev.peer_cert.tod = openssl_cert_tod(err_cert);
+
 	context->event_cb(context->cb_ctx, TLS_PEER_CERTIFICATE, &ev);
 	wpabuf_free(cert);
 	for (alt = 0; alt < num_altsubject; alt++)
@@ -2014,6 +2303,7 @@ static int tls_verify_cb(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	struct tls_connection *conn;
 	struct tls_context *context;
 	char *match, *altmatch, *suffix_match, *domain_match;
+	const char *check_cert_subject;
 	const char *err_str;
 
 	err_cert = X509_STORE_CTX_get_current_cert(x509_ctx);
@@ -2101,7 +2391,30 @@ static int tls_verify_cb(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	}
 #endif /* CONFIG_SHA256 */
 
+	openssl_tls_cert_event(conn, err_cert, depth, buf);
+
 	if (!preverify_ok) {
+		if (depth > 0) {
+			/* Send cert event for the peer certificate so that
+			 * the upper layers get information about it even if
+			 * validation of a CA certificate fails. */
+			STACK_OF(X509) *chain;
+
+			chain = X509_STORE_CTX_get1_chain(x509_ctx);
+			if (chain && sk_X509_num(chain) > 0) {
+				char buf2[256];
+				X509 *cert;
+
+				cert = sk_X509_value(chain, 0);
+				X509_NAME_oneline(X509_get_subject_name(cert),
+						  buf2, sizeof(buf2));
+
+				openssl_tls_cert_event(conn, cert, 0, buf2);
+			}
+			if (chain)
+				sk_X509_pop_free(chain, X509_free);
+		}
+
 		wpa_printf(MSG_WARNING, "TLS: Certificate verification failed,"
 			   " error %d (%s) depth %d for '%s'", err, err_str,
 			   depth, buf);
@@ -2114,6 +2427,18 @@ static int tls_verify_cb(int preverify_ok, X509_STORE_CTX *x509_ctx)
 		   "err=%d (%s) ca_cert_verify=%d depth=%d buf='%s'",
 		   preverify_ok, err, err_str,
 		   conn->ca_cert_verify, depth, buf);
+	check_cert_subject = conn->check_cert_subject;
+	if (!check_cert_subject)
+		check_cert_subject = conn->data->check_cert_subject;
+	if (check_cert_subject) {
+		if (depth == 0 &&
+		    !tls_match_dn_field(err_cert, check_cert_subject)) {
+			preverify_ok = 0;
+			openssl_tls_fail_event(conn, err_cert, err, depth, buf,
+					       "Distinguished Name",
+					       TLS_FAIL_DN_MISMATCH);
+		}
+	}
 	if (depth == 0 && match && os_strstr(buf, match) == NULL) {
 		wpa_printf(MSG_WARNING, "TLS: Subject '%s' did not "
 			   "match with '%s'", buf, match);
@@ -2145,8 +2470,7 @@ static int tls_verify_cb(int preverify_ok, X509_STORE_CTX *x509_ctx)
 		openssl_tls_fail_event(conn, err_cert, err, depth, buf,
 				       "Domain mismatch",
 				       TLS_FAIL_DOMAIN_MISMATCH);
-	} else
-		openssl_tls_cert_event(conn, err_cert, depth, buf);
+	}
 
 	if (conn->cert_probe && preverify_ok && depth == 0) {
 		wpa_printf(MSG_DEBUG, "OpenSSL: Reject server certificate "
@@ -2321,9 +2645,23 @@ static int tls_connection_ca_cert(struct tls_data *data,
 				      (const unsigned char **) &ca_cert_blob,
 				      ca_cert_blob_len);
 		if (cert == NULL) {
-			tls_show_errors(MSG_WARNING, __func__,
-					"Failed to parse ca_cert_blob");
-			return -1;
+			BIO *bio = BIO_new_mem_buf(ca_cert_blob,
+						   ca_cert_blob_len);
+
+			if (bio) {
+				cert = PEM_read_bio_X509(bio, NULL, NULL, NULL);
+				BIO_free(bio);
+			}
+
+			if (!cert) {
+				tls_show_errors(MSG_WARNING, __func__,
+						"Failed to parse ca_cert_blob");
+				return -1;
+			}
+
+			while (ERR_get_error()) {
+				/* Ignore errors from DER conversion. */
+			}
 		}
 
 		if (!X509_STORE_add_cert(SSL_CTX_get_cert_store(ssl_ctx),
@@ -2490,7 +2828,8 @@ static int tls_connection_set_subject_match(struct tls_connection *conn,
 					    const char *subject_match,
 					    const char *altsubject_match,
 					    const char *suffix_match,
-					    const char *domain_match)
+					    const char *domain_match,
+					    const char *check_cert_subject)
 {
 	os_free(conn->subject_match);
 	conn->subject_match = NULL;
@@ -2521,6 +2860,14 @@ static int tls_connection_set_subject_match(struct tls_connection *conn,
 	if (domain_match) {
 		conn->domain_match = os_strdup(domain_match);
 		if (conn->domain_match == NULL)
+			return -1;
+	}
+
+	os_free(conn->check_cert_subject);
+	conn->check_cert_subject = NULL;
+	if (check_cert_subject) {
+		conn->check_cert_subject = os_strdup(check_cert_subject);
+		if (!conn->check_cert_subject)
 			return -1;
 	}
 
@@ -2748,6 +3095,40 @@ static int tls_set_conn_flags(struct tls_connection *conn, unsigned int flags,
 	}
 #endif /* CONFIG_SUITEB */
 
+	if (flags & TLS_CONN_TEAP_ANON_DH) {
+#ifndef TEAP_DH_ANON_CS
+#define TEAP_DH_ANON_CS \
+	"ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:" \
+	"ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES128-SHA256:" \
+	"ECDHE-RSA-AES256-SHA:ECDHE-RSA-AES128-SHA:" \
+	"DHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:" \
+	"DHE-RSA-AES256-SHA256:DHE-RSA-AES128-SHA256:" \
+	"DHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA:" \
+	"ADH-AES256-GCM-SHA384:ADH-AES128-GCM-SHA256:" \
+	"ADH-AES256-SHA256:ADH-AES128-SHA256:ADH-AES256-SHA:ADH-AES128-SHA"
+#endif
+		static const char *cs = TEAP_DH_ANON_CS;
+
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L && \
+	!defined(LIBRESSL_VERSION_NUMBER) && \
+	!defined(OPENSSL_IS_BORINGSSL)
+		/*
+		 * Need to drop to security level 0 to allow anonymous
+		 * cipher suites for EAP-TEAP.
+		 */
+		SSL_set_security_level(conn->ssl, 0);
+#endif
+
+		wpa_printf(MSG_DEBUG,
+			   "OpenSSL: Enable cipher suites for anonymous EAP-TEAP provisioning: %s",
+			   cs);
+		if (SSL_set_cipher_list(conn->ssl, cs) != 1) {
+			tls_show_errors(MSG_INFO, __func__,
+					"Cipher suite configuration failed");
+			return -1;
+		}
+	}
+
 	return 0;
 }
 
@@ -2867,7 +3248,8 @@ static int tls_connection_client_cert(struct tls_connection *conn,
 		return 0;
 	}
 
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(LIBRESSL_VERSION_NUMBER)
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L && \
+	!defined(LIBRESSL_VERSION_NUMBER) && !defined(OPENSSL_IS_BORINGSSL)
 	if (SSL_use_certificate_chain_file(conn->ssl, client_cert) == 1) {
 		ERR_clear_error();
 		wpa_printf(MSG_DEBUG, "OpenSSL: SSL_use_certificate_chain_file"
@@ -3656,11 +4038,13 @@ static int openssl_get_keyblock_size(SSL *ssl)
 
 
 int tls_connection_export_key(void *tls_ctx, struct tls_connection *conn,
-			      const char *label, u8 *out, size_t out_len)
+			      const char *label, const u8 *context,
+			      size_t context_len, u8 *out, size_t out_len)
 {
 	if (!conn ||
 	    SSL_export_keying_material(conn->ssl, out, out_len, label,
-				       os_strlen(label), NULL, 0, 0) != 1)
+				       os_strlen(label), context, context_len,
+				       context != NULL) != 1)
 		return -1;
 	return 0;
 }
@@ -3731,7 +4115,7 @@ int tls_connection_get_eap_fast_key(void *tls_ctx, struct tls_connection *conn,
 				    _out, skip + out_len) == 0) {
 		ret = 0;
 	}
-	os_memset(master_key, 0, sizeof(master_key));
+	forced_memzero(master_key, sizeof(master_key));
 	os_free(rnd);
 	if (ret == 0)
 		os_memcpy(out, _out + skip, out_len);
@@ -3921,6 +4305,22 @@ openssl_connection_handshake(struct tls_connection *conn,
 		wpa_printf(MSG_DEBUG,
 			   "OpenSSL: Handshake finished - resumed=%d",
 			   tls_connection_resumed(conn->ssl_ctx, conn));
+		if (conn->server) {
+			char *buf;
+			size_t buflen = 2000;
+
+			buf = os_malloc(buflen);
+			if (buf) {
+				if (SSL_get_shared_ciphers(conn->ssl, buf,
+							   buflen)) {
+					buf[buflen - 1] = '\0';
+					wpa_printf(MSG_DEBUG,
+						   "OpenSSL: Shared ciphers: %s",
+						   buf);
+				}
+				os_free(buf);
+			}
+		}
 		if (appl_data && in_data)
 			*appl_data = openssl_get_appl_data(conn,
 							   wpabuf_len(in_data));
@@ -4103,11 +4503,15 @@ int tls_connection_set_cipher_list(void *tls_ctx, struct tls_connection *conn,
 
 		c++;
 	}
+	if (!buf[0]) {
+		wpa_printf(MSG_DEBUG, "OpenSSL: No ciphers listed");
+		return -1;
+	}
 
 	wpa_printf(MSG_DEBUG, "OpenSSL: cipher suites: %s", buf + 1);
 
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(LIBRESSL_VERSION_NUMBER)
-#if defined(EAP_FAST) || defined(EAP_FAST_DYNAMIC) || defined(EAP_SERVER_FAST)
+#ifdef EAP_FAST_OR_TEAP
 	if (os_strstr(buf, ":ADH-")) {
 		/*
 		 * Need to drop to security level 0 to allow anonymous
@@ -4118,7 +4522,7 @@ int tls_connection_set_cipher_list(void *tls_ctx, struct tls_connection *conn,
 		/* Force at least security level 1 */
 		SSL_set_security_level(conn->ssl, 1);
 	}
-#endif /* EAP_FAST || EAP_FAST_DYNAMIC || EAP_SERVER_FAST */
+#endif /* EAP_FAST_OR_TEAP */
 #endif
 
 	if (SSL_set_cipher_list(conn->ssl, buf + 1) != 1) {
@@ -4172,7 +4576,7 @@ int tls_connection_enable_workaround(void *ssl_ctx,
 }
 
 
-#if defined(EAP_FAST) || defined(EAP_FAST_DYNAMIC) || defined(EAP_SERVER_FAST)
+#ifdef EAP_FAST_OR_TEAP
 /* ClientHello TLS extensions require a patch to openssl, so this function is
  * commented out unless explicitly needed for EAP-FAST in order to be able to
  * build this file with unmodified openssl. */
@@ -4189,7 +4593,7 @@ int tls_connection_client_hello_ext(void *ssl_ctx, struct tls_connection *conn,
 
 	return 0;
 }
-#endif /* EAP_FAST || EAP_FAST_DYNAMIC || EAP_SERVER_FAST */
+#endif /* EAP_FAST_OR_TEAP */
 
 
 int tls_connection_get_failed(void *ssl_ctx, struct tls_connection *conn)
@@ -4398,6 +4802,7 @@ static int ocsp_resp_cb(SSL *s, void *arg)
 	res = OCSP_resp_find_status(basic, id, &status, &reason, &produced_at,
 				    &this_update, &next_update);
 	if (!res) {
+		OCSP_CERTID_free(id);
 		id = OCSP_cert_to_id(NULL, conn->peer_cert, conn->peer_issuer);
 		if (!id) {
 			wpa_printf(MSG_DEBUG,
@@ -4578,7 +4983,8 @@ int tls_connection_set_params(void *tls_ctx, struct tls_connection *conn,
 					     params->subject_match,
 					     params->altsubject_match,
 					     params->suffix_match,
-					     params->domain_match))
+					     params->domain_match,
+					     params->check_cert_subject))
 		return -1;
 
 	if (engine_id && ca_cert_id) {
@@ -4707,6 +5113,114 @@ int tls_connection_set_params(void *tls_ctx, struct tls_connection *conn,
 }
 
 
+static void openssl_debug_dump_cipher_list(SSL_CTX *ssl_ctx)
+{
+	SSL *ssl;
+	int i;
+
+	ssl = SSL_new(ssl_ctx);
+	if (!ssl)
+		return;
+
+	wpa_printf(MSG_DEBUG,
+		   "OpenSSL: Enabled cipher suites in priority order");
+	for (i = 0; ; i++) {
+		const char *cipher;
+
+		cipher = SSL_get_cipher_list(ssl, i);
+		if (!cipher)
+			break;
+		wpa_printf(MSG_DEBUG, "Cipher %d: %s", i, cipher);
+	}
+
+	SSL_free(ssl);
+}
+
+
+#if !defined(LIBRESSL_VERSION_NUMBER) && !defined(BORINGSSL_API_VERSION)
+
+static const char * openssl_pkey_type_str(const EVP_PKEY *pkey)
+{
+	if (!pkey)
+		return "NULL";
+	switch (EVP_PKEY_type(EVP_PKEY_id(pkey))) {
+	case EVP_PKEY_RSA:
+		return "RSA";
+	case EVP_PKEY_DSA:
+		return "DSA";
+	case EVP_PKEY_DH:
+		return "DH";
+	case EVP_PKEY_EC:
+		return "EC";
+	}
+	return "?";
+}
+
+
+static void openssl_debug_dump_certificate(int i, X509 *cert)
+{
+	char buf[256];
+	EVP_PKEY *pkey;
+	ASN1_INTEGER *ser;
+	char serial_num[128];
+
+	X509_NAME_oneline(X509_get_subject_name(cert), buf, sizeof(buf));
+
+	ser = X509_get_serialNumber(cert);
+	if (ser)
+		wpa_snprintf_hex_uppercase(serial_num, sizeof(serial_num),
+					   ASN1_STRING_get0_data(ser),
+					   ASN1_STRING_length(ser));
+	else
+		serial_num[0] = '\0';
+
+	pkey = X509_get_pubkey(cert);
+	wpa_printf(MSG_DEBUG, "%d: %s (%s) %s", i, buf,
+		   openssl_pkey_type_str(pkey), serial_num);
+	EVP_PKEY_free(pkey);
+}
+
+
+static void openssl_debug_dump_certificates(SSL_CTX *ssl_ctx)
+{
+	STACK_OF(X509) *certs;
+
+	wpa_printf(MSG_DEBUG, "OpenSSL: Configured certificate chain");
+	if (SSL_CTX_get0_chain_certs(ssl_ctx, &certs) == 1) {
+		int i;
+
+		for (i = sk_X509_num(certs); i > 0; i--)
+			openssl_debug_dump_certificate(i, sk_X509_value(certs,
+									i - 1));
+	}
+	openssl_debug_dump_certificate(0, SSL_CTX_get0_certificate(ssl_ctx));
+}
+
+#endif
+
+
+static void openssl_debug_dump_certificate_chains(SSL_CTX *ssl_ctx)
+{
+#if !defined(LIBRESSL_VERSION_NUMBER) && !defined(BORINGSSL_API_VERSION)
+	int res;
+
+	for (res = SSL_CTX_set_current_cert(ssl_ctx, SSL_CERT_SET_FIRST);
+	     res == 1;
+	     res = SSL_CTX_set_current_cert(ssl_ctx, SSL_CERT_SET_NEXT))
+		openssl_debug_dump_certificates(ssl_ctx);
+
+	SSL_CTX_set_current_cert(ssl_ctx, SSL_CERT_SET_FIRST);
+#endif
+}
+
+
+static void openssl_debug_dump_ctx(SSL_CTX *ssl_ctx)
+{
+	openssl_debug_dump_cipher_list(ssl_ctx);
+	openssl_debug_dump_certificate_chains(ssl_ctx);
+}
+
+
 int tls_global_set_params(void *tls_ctx,
 			  const struct tls_connection_params *params)
 {
@@ -4719,10 +5233,22 @@ int tls_global_set_params(void *tls_ctx,
 			   __func__, ERR_error_string(err, NULL));
 	}
 
+	os_free(data->check_cert_subject);
+	data->check_cert_subject = NULL;
+	if (params->check_cert_subject) {
+		data->check_cert_subject =
+			os_strdup(params->check_cert_subject);
+		if (!data->check_cert_subject)
+			return -1;
+	}
+
 	if (tls_global_ca_cert(data, params->ca_cert) ||
 	    tls_global_client_cert(data, params->client_cert) ||
 	    tls_global_private_key(data, params->private_key,
 				   params->private_key_passwd) ||
+	    tls_global_client_cert(data, params->client_cert2) ||
+	    tls_global_private_key(data, params->private_key2,
+				   params->private_key_passwd2) ||
 	    tls_global_dh(data, params->dh_file)) {
 		wpa_printf(MSG_INFO, "TLS: Failed to set global parameters");
 		return -1;
@@ -4756,6 +5282,9 @@ int tls_global_set_params(void *tls_ctx,
 		return -1;
 #else /* OPENSSL_IS_BORINGSSL || < 1.0.2 */
 #ifndef OPENSSL_NO_EC
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+		SSL_CTX_set_ecdh_auto(ssl_ctx, 1);
+#endif
 		if (SSL_CTX_set1_curves_list(ssl_ctx,
 					     params->openssl_ecdh_curves) !=
 		    1) {
@@ -4789,11 +5318,13 @@ int tls_global_set_params(void *tls_ctx,
 		tls_global->ocsp_stapling_response = NULL;
 #endif /* HAVE_OCSP */
 
+	openssl_debug_dump_ctx(ssl_ctx);
+
 	return 0;
 }
 
 
-#if defined(EAP_FAST) || defined(EAP_FAST_DYNAMIC) || defined(EAP_SERVER_FAST)
+#ifdef EAP_FAST_OR_TEAP
 /* Pre-shared secred requires a patch to openssl, so this function is
  * commented out unless explicitly needed for EAP-FAST in order to be able to
  * build this file with unmodified openssl. */
@@ -4874,7 +5405,7 @@ static int tls_session_ticket_ext_cb(SSL *s, const unsigned char *data,
 
 	return 1;
 }
-#endif /* EAP_FAST || EAP_FAST_DYNAMIC || EAP_SERVER_FAST */
+#endif /* EAP_FAST_OR_TEAP */
 
 
 int tls_connection_set_session_ticket_cb(void *tls_ctx,
@@ -4882,7 +5413,7 @@ int tls_connection_set_session_ticket_cb(void *tls_ctx,
 					 tls_session_ticket_cb cb,
 					 void *ctx)
 {
-#if defined(EAP_FAST) || defined(EAP_FAST_DYNAMIC) || defined(EAP_SERVER_FAST)
+#ifdef EAP_FAST_OR_TEAP
 	conn->session_ticket_cb = cb;
 	conn->session_ticket_cb_ctx = ctx;
 
@@ -4899,9 +5430,9 @@ int tls_connection_set_session_ticket_cb(void *tls_ctx,
 	}
 
 	return 0;
-#else /* EAP_FAST || EAP_FAST_DYNAMIC || EAP_SERVER_FAST */
+#else /* EAP_FAST_OR_TEAP */
 	return -1;
-#endif /* EAP_FAST || EAP_FAST_DYNAMIC || EAP_SERVER_FAST */
+#endif /* EAP_FAST_OR_TEAP */
 }
 
 
@@ -4983,4 +5514,37 @@ void tls_connection_remove_session(struct tls_connection *conn)
 	else
 		wpa_printf(MSG_DEBUG,
 			   "OpenSSL: Removed cached session to disable session resumption");
+}
+
+
+int tls_get_tls_unique(struct tls_connection *conn, u8 *buf, size_t max_len)
+{
+	size_t len;
+	int reused;
+
+	reused = SSL_session_reused(conn->ssl);
+	if ((conn->server && !reused) || (!conn->server && reused))
+		len = SSL_get_peer_finished(conn->ssl, buf, max_len);
+	else
+		len = SSL_get_finished(conn->ssl, buf, max_len);
+
+	if (len == 0 || len > max_len)
+		return -1;
+
+	return len;
+}
+
+
+u16 tls_connection_get_cipher_suite(struct tls_connection *conn)
+{
+	const SSL_CIPHER *cipher;
+
+	cipher = SSL_get_current_cipher(conn->ssl);
+	if (!cipher)
+		return 0;
+#if OPENSSL_VERSION_NUMBER >= 0x10101000L && !defined(LIBRESSL_VERSION_NUMBER)
+	return SSL_CIPHER_get_protocol_id(cipher);
+#else
+	return SSL_CIPHER_get_id(cipher) & 0xFFFF;
+#endif
 }

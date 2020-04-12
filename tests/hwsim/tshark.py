@@ -28,8 +28,8 @@ def _run_tshark(filename, filter, display=None, wait=True):
         time.sleep(0.1)
 
     try:
-        arg = [ "tshark", "-r", filename,
-                _tshark_filter_arg, filter ]
+        arg = ["tshark", "-r", filename,
+               _tshark_filter_arg, filter]
         if display:
             arg.append('-Tfields')
             for d in display:
@@ -45,12 +45,13 @@ def _run_tshark(filename, filter, display=None, wait=True):
         return None
 
     output = cmd.communicate()
-    out = output[0]
+    out = output[0].decode(errors='ignore')
+    out1 = output[1].decode()
     res = cmd.wait()
     if res == 1:
         errmsg = "Some fields aren't valid"
-        if errmsg in output[1]:
-            errors = output[1].split('\n')
+        if errmsg in out1:
+            errors = out1.split('\n')
             fields = []
             collect = False
             for f in errors:
@@ -68,11 +69,11 @@ def _run_tshark(filename, filter, display=None, wait=True):
         arg[3] = '-R'
         cmd = subprocess.Popen(arg, stdout=subprocess.PIPE,
                                stderr=open('/dev/null', 'w'))
-        out = cmd.communicate()[0]
+        out = cmd.communicate()[0].decode()
         cmd.wait()
     if res == 2:
-        if "tshark: Neither" in output[1] and "are field or protocol names" in output[1]:
-            errors = output[1].split('\n')
+        if "tshark: Neither" in out1 and "are field or protocol names" in out1:
+            errors = out1.split('\n')
             fields = []
             for f in errors:
                 if f.startswith("tshark: Neither "):
@@ -101,8 +102,8 @@ def run_tshark(filename, filter, display=None, wait=True):
                            wait)
 
 def run_tshark_json(filename, filter):
-    arg = [ "tshark", "-r", filename,
-            _tshark_filter_arg, filter ]
+    arg = ["tshark", "-r", filename,
+           _tshark_filter_arg, filter]
     arg.append('-Tjson')
     arg.append('-x')
     try:
@@ -112,6 +113,6 @@ def run_tshark_json(filename, filter):
         logger.info("Could run run tshark: " + str(e))
         return None
     output = cmd.communicate()
-    out = output[0]
+    out = output[0].decode()
     res = cmd.wait()
     return out

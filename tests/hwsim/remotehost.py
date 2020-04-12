@@ -19,7 +19,7 @@ def execute_thread(command, reply):
     logger.debug("thread run: " + cmd)
     try:
         status = 0
-        buf = subprocess.check_output(command, stderr=subprocess.STDOUT)
+        buf = subprocess.check_output(command, stderr=subprocess.STDOUT).decode()
     except subprocess.CalledProcessError as e:
         status = e.returncode
         buf = e.output
@@ -55,7 +55,7 @@ class Host():
 
         logger.debug("status: " + str(status))
         logger.debug("buf: " + str(buf))
-        return status, buf
+        return status, buf.decode()
 
     def execute(self, command):
         if self.host is None:
@@ -73,17 +73,17 @@ class Host():
 
         logger.debug(self.name + " status: " + str(status))
         logger.debug(self.name + " buf: " + str(buf))
-        return status, buf
+        return status, buf.decode()
 
     # async execute
     def execute_run(self, command, res):
         if self.host is None:
             cmd = command
         else:
-            cmd = ["ssh",  self.user + "@" + self.host, ' '.join(command)]
+            cmd = ["ssh", self.user + "@" + self.host, ' '.join(command)]
         _cmd = self.name + " execute_run: " + ' '.join(cmd)
         logger.debug(_cmd)
-        t = threading.Thread(target = execute_thread, args=(cmd, res))
+        t = threading.Thread(target=execute_thread, args=(cmd, res))
         t.start()
         return t
 

@@ -19,57 +19,57 @@ class LocalVariables:
 CFG = """
 ifaces :
 {
-    ids = ["%s", "%s" ];
+    ids = ["%s", "%s"]
     links = (
         (0, 1, 30)
-    );
-};
+    )
+}
 """
 
 CFG2 = """
 ifaces :
 {
-    ids = ["%s", "%s", "%s"];
-};
+    ids = ["%s", "%s", "%s"]
+}
 
 model:
 {
-    type = "prob";
+    type = "prob"
 
     links = (
         (0, 1, 0.000000),
         (0, 2, 0.000000),
         (1, 2, 1.000000)
-    );
-};
+    )
+}
 """
 
 CFG3 = """
 ifaces :
 {
-    ids = ["%s", "%s", "%s", "%s", "%s" ];
-};
+    ids = ["%s", "%s", "%s", "%s", "%s"]
+}
 
 model:
 {
-    type = "prob";
+    type = "prob"
 
-    default_prob = 1.0;
+    default_prob = 1.0
     links = (
         (0, 1, 0.000000),
         (1, 2, 0.000000),
         (2, 3, 0.000000),
         (3, 4, 0.000000)
-    );
-};
+    )
+}
 """
 
 def get_wmediumd_version():
     if len(LocalVariables.revs) > 0:
-        return LocalVariables.revs;
+        return LocalVariables.revs
 
     try:
-        verstr = subprocess.check_output(['wmediumd', '-V'])
+        verstr = subprocess.check_output(['wmediumd', '-V']).decode()
     except OSError as e:
         if e.errno == errno.ENOENT:
             raise HwsimSkip('wmediumd not available')
@@ -82,7 +82,7 @@ def get_wmediumd_version():
     while len(LocalVariables.revs) < 3:
         LocalVariables.revs += [0]
 
-    return LocalVariables.revs;
+    return LocalVariables.revs
 
 def require_wmediumd_version(major, minor, patch):
     revs = get_wmediumd_version()
@@ -108,7 +108,7 @@ def start_wmediumd(fn, params):
 
     logs = ''
     while True:
-        line = p.stdout.readline()
+        line = p.stdout.readline().decode()
         if not line:
             output_wmediumd_log(p, params, logs)
             raise Exception('wmediumd was terminated unexpectedly')
@@ -121,7 +121,7 @@ def stop_wmediumd(p, params):
     p.terminate()
     p.wait()
     stdoutdata, stderrdata = p.communicate()
-    output_wmediumd_log(p, params, stdoutdata)
+    output_wmediumd_log(p, params, stdoutdata.decode())
 
 def test_wmediumd_simple(dev, apdev, params):
     """test a simple wmediumd configuration"""
@@ -284,8 +284,8 @@ def _test_wmediumd_path_ttl(dev, ok):
             raise Exception("Unexpected mode: " + mode)
 
     # set mesh path request ttl
-    subprocess.check_call([ "iw", "dev", dev[0].ifname, "set", "mesh_param",
-                            "mesh_element_ttl=" + ("4" if ok else "3") ])
+    subprocess.check_call(["iw", "dev", dev[0].ifname, "set", "mesh_param",
+                           "mesh_element_ttl=" + ("4" if ok else "3")])
 
     # Check for peer connected
     for i in range(0, 5):
@@ -350,7 +350,7 @@ def test_wmediumd_path_rann(dev, apdev, params):
     filt = "wlan.fc.type_subtype == 0x000d && " + \
            "wlan_mgt.fixed.mesh_action == 0x01 && " + \
            "wlan_mgt.tag.number == 126"
-    out = run_tshark(capfile, filt, [ "wlan.rann.root_sta" ])
+    out = run_tshark(capfile, filt, ["wlan.rann.root_sta"])
     if out is None:
         raise Exception("No captured data found\n")
     if out.find(dev[2].own_addr()) == -1 or \
@@ -363,7 +363,7 @@ def test_wmediumd_path_rann(dev, apdev, params):
            "wlan.fc.type_subtype == 0x000d && " + \
            "wlan_mgt.fixed.mesh_action == 0x01 && " + \
            "wlan_mgt.tag.number == 126"
-    out = run_tshark(capfile, filt, [ "frame.time_relative" ])
+    out = run_tshark(capfile, filt, ["frame.time_relative"])
     if out is None:
         raise Exception("No captured data found\n")
     lines = out.splitlines()
@@ -380,7 +380,7 @@ def test_wmediumd_path_rann(dev, apdev, params):
            "wlan.fc.type_subtype == 0x000d && " + \
            "wlan_mgt.fixed.mesh_action == 0x01 && " + \
            "wlan_mgt.tag.number == 130"
-    out = run_tshark(capfile, filt, [ "wlan.sa", "wlan.da" ])
+    out = run_tshark(capfile, filt, ["wlan.sa", "wlan.da"])
     if out is None:
         raise Exception("No captured data found\n")
     if len(out) > 0:

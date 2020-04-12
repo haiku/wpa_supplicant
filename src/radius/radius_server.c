@@ -1,6 +1,6 @@
 /*
  * RADIUS authentication server
- * Copyright (c) 2005-2009, 2011-2014, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2005-2009, 2011-2019, Jouni Malinen <j@w1.fi>
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -238,6 +238,9 @@ struct radius_server_data {
 	 */
 	int pac_key_refresh_time;
 
+	int eap_teap_auth;
+	int eap_teap_pac_no_inner;
+
 	/**
 	 * eap_sim_aka_result_ind - EAP-SIM/AKA protected success indication
 	 *
@@ -245,6 +248,8 @@ struct radius_server_data {
 	 * (AT_RESULT_IND) is used with EAP-SIM and EAP-AKA.
 	 */
 	int eap_sim_aka_result_ind;
+
+	int eap_sim_id;
 
 	/**
 	 * tnc - Trusted Network Connect (TNC)
@@ -676,6 +681,23 @@ static void radius_server_testing_options(struct radius_session *sess,
 }
 
 
+#ifdef CONFIG_ERP
+static struct eap_server_erp_key *
+radius_server_erp_find_key(struct radius_server_data *data, const char *keyname)
+{
+	struct eap_server_erp_key *erp;
+
+	dl_list_for_each(erp, &data->erp_keys, struct eap_server_erp_key,
+			 list) {
+		if (os_strcmp(erp->keyname_nai, keyname) == 0)
+			return erp;
+	}
+
+	return NULL;
+}
+#endif /* CONFIG_ERP */
+
+
 static struct radius_session *
 radius_server_get_new_session(struct radius_server_data *data,
 			      struct radius_client *client,
@@ -686,7 +708,7 @@ radius_server_get_new_session(struct radius_server_data *data,
 	int res;
 	struct radius_session *sess;
 	struct eap_config eap_conf;
-	struct eap_user tmp;
+	struct eap_user *tmp;
 
 	RADIUS_DEBUG("Creating a new session");
 
@@ -697,12 +719,27 @@ radius_server_get_new_session(struct radius_server_data *data,
 	}
 	RADIUS_DUMP_ASCII("User-Name", user, user_len);
 
-	os_memset(&tmp, 0, sizeof(tmp));
-	res = data->get_eap_user(data->conf_ctx, user, user_len, 0, &tmp);
-	bin_clear_free(tmp.password, tmp.password_len);
+	tmp = os_zalloc(sizeof(*tmp));
+	if (!tmp)
+		return NULL;
 
+	res = data->get_eap_user(data->conf_ctx, user, user_len, 0, tmp);
+#ifdef CONFIG_ERP
+	if (res != 0 && data->erp) {
+		char *username;
+
+		username = os_zalloc(user_len + 1);
+		if (username) {
+			os_memcpy(username, user, user_len);
+			if (radius_server_erp_find_key(data, username))
+				res = 0;
+			os_free(username);
+		}
+	}
+#endif /* CONFIG_ERP */
 	if (res != 0) {
 		RADIUS_DEBUG("User-Name not found from user database");
+		eap_user_free(tmp);
 		return NULL;
 	}
 
@@ -710,10 +747,12 @@ radius_server_get_new_session(struct radius_server_data *data,
 	sess = radius_server_new_session(data, client);
 	if (sess == NULL) {
 		RADIUS_DEBUG("Failed to create a new session");
+		eap_user_free(tmp);
 		return NULL;
 	}
-	sess->accept_attr = tmp.accept_attr;
-	sess->macacl = tmp.macacl;
+	sess->accept_attr = tmp->accept_attr;
+	sess->macacl = tmp->macacl;
+	eap_user_free(tmp);
 
 	sess->username = os_malloc(user_len * 4 + 1);
 	if (sess->username == NULL) {
@@ -758,7 +797,10 @@ radius_server_get_new_session(struct radius_server_data *data,
 	eap_conf.eap_fast_prov = data->eap_fast_prov;
 	eap_conf.pac_key_lifetime = data->pac_key_lifetime;
 	eap_conf.pac_key_refresh_time = data->pac_key_refresh_time;
+	eap_conf.eap_teap_auth = data->eap_teap_auth;
+	eap_conf.eap_teap_pac_no_inner = data->eap_teap_pac_no_inner;
 	eap_conf.eap_sim_aka_result_ind = data->eap_sim_aka_result_ind;
+	eap_conf.eap_sim_id = data->eap_sim_id;
 	eap_conf.tnc = data->tnc;
 	eap_conf.wps = data->wps;
 	eap_conf.pwd_group = data->pwd_group;
@@ -1101,6 +1143,13 @@ radius_server_encapsulate_eap(struct radius_server_data *data,
 					      len, sess->eap_if->eapKeyData,
 					      len)) {
 			RADIUS_DEBUG("Failed to add MPPE key attributes");
+		}
+
+		if (sess->eap_if->eapSessionId &&
+		    !radius_msg_add_attr(msg, RADIUS_ATTR_EAP_KEY_NAME,
+					 sess->eap_if->eapSessionId,
+					 sess->eap_if->eapSessionIdLen)) {
+			RADIUS_DEBUG("Failed to add EAP-Key-Name attribute");
 		}
 	}
 
@@ -2251,7 +2300,7 @@ radius_server_read_clients(const char *client_file, int ipv6)
 			entry->addr.s_addr = addr.s_addr;
 			val = 0;
 			for (i = 0; i < mask; i++)
-				val |= 1 << (31 - i);
+				val |= 1U << (31 - i);
 			entry->mask.s_addr = htonl(val);
 		}
 #ifdef CONFIG_IPV6
@@ -2314,6 +2363,8 @@ radius_server_init(struct radius_server_conf *conf)
 	if (data == NULL)
 		return NULL;
 
+	data->auth_sock = -1;
+	data->acct_sock = -1;
 	dl_list_init(&data->erp_keys);
 	os_get_reltime(&data->start_time);
 	data->conf_ctx = conf->conf_ctx;
@@ -2341,8 +2392,11 @@ radius_server_init(struct radius_server_conf *conf)
 	data->eap_fast_prov = conf->eap_fast_prov;
 	data->pac_key_lifetime = conf->pac_key_lifetime;
 	data->pac_key_refresh_time = conf->pac_key_refresh_time;
+	data->eap_teap_auth = conf->eap_teap_auth;
+	data->eap_teap_pac_no_inner = conf->eap_teap_pac_no_inner;
 	data->get_eap_user = conf->get_eap_user;
 	data->eap_sim_aka_result_ind = conf->eap_sim_aka_result_ind;
+	data->eap_sim_id = conf->eap_sim_id;
 	data->tnc = conf->tnc;
 	data->wps = conf->wps;
 	data->pwd_group = conf->pwd_group;
@@ -2702,15 +2756,8 @@ radius_server_erp_get_key(void *ctx, const char *keyname)
 {
 	struct radius_session *sess = ctx;
 	struct radius_server_data *data = sess->server;
-	struct eap_server_erp_key *erp;
 
-	dl_list_for_each(erp, &data->erp_keys, struct eap_server_erp_key,
-			 list) {
-		if (os_strcmp(erp->keyname_nai, keyname) == 0)
-			return erp;
-	}
-
-	return NULL;
+	return radius_server_erp_find_key(data, keyname);
 }
 
 

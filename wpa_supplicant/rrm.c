@@ -174,7 +174,7 @@ int wpas_rrm_send_neighbor_rep_request(struct wpa_supplicant *wpa_s,
 	if (buf == NULL) {
 		wpa_printf(MSG_DEBUG,
 			   "RRM: Failed to allocate Neighbor Report Request");
-		return -ENOMEM;
+		return ENOMEM;
 	}
 
 	wpa_printf(MSG_DEBUG, "RRM: Neighbor report request (for %s), token=%d",
@@ -397,7 +397,10 @@ static int wpas_rrm_beacon_rep_update_last_frame(u8 *pos, size_t len)
 	struct rrm_measurement_report_element *msr_rep;
 	u8 *end = pos + len;
 	u8 *msr_rep_end;
+	struct rrm_measurement_beacon_report *rep = NULL;
+	u8 *subelem;
 
+	/* Find the last beacon report element */
 	while (end - pos >= (int) sizeof(*msr_rep)) {
 		msr_rep = (struct rrm_measurement_report_element *) pos;
 		msr_rep_end = pos + msr_rep->len + 2;
@@ -410,29 +413,26 @@ static int wpas_rrm_beacon_rep_update_last_frame(u8 *pos, size_t len)
 			return -1;
 		}
 
-		if (msr_rep->type == MEASURE_TYPE_BEACON) {
-			struct rrm_measurement_beacon_report *rep;
-			u8 *subelem;
-
+		if (msr_rep->type == MEASURE_TYPE_BEACON)
 			rep = (struct rrm_measurement_beacon_report *)
 				msr_rep->variable;
-			subelem = rep->variable;
-			while (subelem + 2 < msr_rep_end &&
-			       subelem[0] !=
-			       WLAN_BEACON_REPORT_SUBELEM_LAST_INDICATION)
-				subelem += 2 + subelem[1];
-
-			if (subelem + 2 < msr_rep_end &&
-			    subelem[0] ==
-			    WLAN_BEACON_REPORT_SUBELEM_LAST_INDICATION &&
-			    subelem[1] == 1 &&
-			    subelem +
-			    BEACON_REPORT_LAST_INDICATION_SUBELEM_LEN <= end)
-				subelem[2] = 1;
-		}
 
 		pos += pos[1] + 2;
 	}
+
+	if (!rep)
+		return 0;
+
+	subelem = rep->variable;
+	while (subelem + 2 < msr_rep_end &&
+	       subelem[0] != WLAN_BEACON_REPORT_SUBELEM_LAST_INDICATION)
+		subelem += 2 + subelem[1];
+
+	if (subelem + 2 < msr_rep_end &&
+	    subelem[0] == WLAN_BEACON_REPORT_SUBELEM_LAST_INDICATION &&
+	    subelem[1] == 1 &&
+	    subelem + BEACON_REPORT_LAST_INDICATION_SUBELEM_LEN <= end)
+		subelem[2] = 1;
 
 	return 0;
 }
@@ -717,20 +717,20 @@ static int wpas_get_op_chan_phy(int freq, const u8 *ies, size_t ies_len,
 			seg0 = vht_oper->vht_op_info_chan_center_freq_seg0_idx;
 			seg1 = vht_oper->vht_op_info_chan_center_freq_seg1_idx;
 			if (seg1 && abs(seg1 - seg0) == 8)
-				vht = VHT_CHANWIDTH_160MHZ;
+				vht = CHANWIDTH_160MHZ;
 			else if (seg1)
-				vht = VHT_CHANWIDTH_80P80MHZ;
+				vht = CHANWIDTH_80P80MHZ;
 			else
-				vht = VHT_CHANWIDTH_80MHZ;
+				vht = CHANWIDTH_80MHZ;
 			break;
 		case 2:
-			vht = VHT_CHANWIDTH_160MHZ;
+			vht = CHANWIDTH_160MHZ;
 			break;
 		case 3:
-			vht = VHT_CHANWIDTH_80P80MHZ;
+			vht = CHANWIDTH_80P80MHZ;
 			break;
 		default:
-			vht = VHT_CHANWIDTH_USE_HT;
+			vht = CHANWIDTH_USE_HT;
 			break;
 		}
 	}

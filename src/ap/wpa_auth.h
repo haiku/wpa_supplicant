@@ -254,7 +254,8 @@ struct wpa_auth_callbacks {
 			  int value);
 	int (*get_eapol)(void *ctx, const u8 *addr, wpa_eapol_variable var);
 	const u8 * (*get_psk)(void *ctx, const u8 *addr, const u8 *p2p_dev_addr,
-			      const u8 *prev_psk, size_t *psk_len);
+			      const u8 *prev_psk, size_t *psk_len,
+			      int *vlan_id);
 	int (*get_msk)(void *ctx, const u8 *addr, u8 *msk, size_t *len);
 	int (*set_key)(void *ctx, int vlan_id, enum wpa_alg alg,
 		       const u8 *addr, int idx, u8 *key, size_t key_len);
@@ -270,6 +271,7 @@ struct wpa_auth_callbacks {
 	int (*send_oui)(void *ctx, const u8 *dst, u8 oui_suffix, const u8 *data,
 			size_t data_len);
 	int (*channel_info)(void *ctx, struct wpa_channel_info *ci);
+	int (*update_vlan)(void *ctx, const u8 *addr, int vlan_id);
 	int (*get_sta_tx_params)(void *ctx, const u8 *addr,
 				 int ap_max_chanwidth, int ap_seg1_idx,
 				 int *bandwidth, int *seg1_idx);
@@ -316,7 +318,7 @@ enum {
 };
 
 int wpa_validate_wpa_ie(struct wpa_authenticator *wpa_auth,
-			struct wpa_state_machine *sm,
+			struct wpa_state_machine *sm, int freq,
 			const u8 *wpa_ie, size_t wpa_ie_len,
 			const u8 *mdie, size_t mdie_len,
 			const u8 *owe_dh, size_t owe_dh_len);
@@ -468,9 +470,16 @@ int wpa_auth_write_fte(struct wpa_authenticator *wpa_auth, int use_sha384,
 void wpa_auth_get_fils_aead_params(struct wpa_state_machine *sm,
 				   u8 *fils_anonce, u8 *fils_snonce,
 				   u8 *fils_kek, size_t *fils_kek_len);
+void wpa_auth_add_fils_pmk_pmkid(struct wpa_state_machine *sm, const u8 *pmk,
+				 size_t pmk_len, const u8 *pmkid);
 u8 * wpa_auth_write_assoc_resp_owe(struct wpa_state_machine *sm,
 				   u8 *pos, size_t max_len,
 				   const u8 *req_ies, size_t req_ies_len);
+u8 * wpa_auth_write_assoc_resp_fils(struct wpa_state_machine *sm,
+				    u8 *pos, size_t max_len,
+				    const u8 *req_ies, size_t req_ies_len);
+void wpa_auth_set_auth_alg(struct wpa_state_machine *sm, u16 auth_alg);
+void wpa_auth_set_dpp_z(struct wpa_state_machine *sm, const struct wpabuf *z);
 
 int wpa_auth_resend_m1(struct wpa_state_machine *sm, int change_anonce,
 		       void (*cb)(void *ctx1, void *ctx2),
@@ -482,5 +491,6 @@ int wpa_auth_resend_group_m1(struct wpa_state_machine *sm,
 			     void (*cb)(void *ctx1, void *ctx2),
 			     void *ctx1, void *ctx2);
 int wpa_auth_rekey_gtk(struct wpa_authenticator *wpa_auth);
+void wpa_auth_set_ptk_rekey_timer(struct wpa_state_machine *sm);
 
 #endif /* WPA_AUTH_H */

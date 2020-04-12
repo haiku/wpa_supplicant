@@ -111,7 +111,7 @@ class Wlantest:
                 raise Exception("wlantest_cli failed")
             return ret[1]
         else:
-            return subprocess.check_output([self.wlantest_cli] + params)
+            return subprocess.check_output([self.wlantest_cli] + params).decode()
 
     def flush(self):
         res = self.cli_cmd(["flush"])
@@ -241,4 +241,4 @@ class Wlantest:
         for tid in range(0, 17):
             tx[tid] = self.get_tx_tid(bssid, addr, tid)
             rx[tid] = self.get_rx_tid(bssid, addr, tid)
-        return [ tx, rx ]
+        return [tx, rx]

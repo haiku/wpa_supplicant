@@ -16,9 +16,9 @@ import hostapd
 from utils import *
 
 def wait_dfs_event(hapd, event, timeout):
-    dfs_events = [ "DFS-RADAR-DETECTED", "DFS-NEW-CHANNEL",
-                   "DFS-CAC-START", "DFS-CAC-COMPLETED",
-                   "DFS-NOP-FINISHED", "AP-ENABLED", "AP-CSA-FINISHED" ]
+    dfs_events = ["DFS-RADAR-DETECTED", "DFS-NEW-CHANNEL",
+                  "DFS-CAC-START", "DFS-CAC-COMPLETED",
+                  "DFS-NOP-FINISHED", "AP-ENABLED", "AP-CSA-FINISHED"]
     ev = hapd.wait_event(dfs_events, timeout=timeout)
     if not ev:
         raise Exception("DFS event timed out")
@@ -275,15 +275,12 @@ def test_dfs_radar2(dev, apdev):
 
         wait_dfs_event(hapd, None, 5)
     finally:
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        time.sleep(0.1)
+        clear_regdom(hapd, dev)
 
 @remote_compatible
 def test_dfs_radar_on_non_dfs_channel(dev, apdev):
     """DFS radar detection test code on non-DFS channel"""
-    params = { "ssid": "radar" }
+    params = {"ssid": "radar"}
     hapd = hostapd.add_ap(apdev[0], params)
 
     hapd.request("RADAR DETECTED freq=5260 ht_enabled=1 chan_width=1")
@@ -507,7 +504,4 @@ def test_dfs_cac_restart_on_enable(dev, apdev):
         hapd.disable()
 
     finally:
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        time.sleep(0.1)
+        clear_regdom(hapd, dev)
