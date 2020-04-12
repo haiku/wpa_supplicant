@@ -92,6 +92,8 @@ public:
 		if (fPassword == NULL)
 			return;
 
+		fPassword->TextView()->HideTyping(true);
+
 		BLayoutItem* layoutItem = fPassword->CreateTextViewLayoutItem();
 		layoutItem->SetExplicitMinSize(BSize((285 / 12) * be_plain_font->Size(),
 			B_SIZE_UNSET));
