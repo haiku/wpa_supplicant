@@ -4,12 +4,12 @@ resource app_flags B_EXCLUSIVE_LAUNCH | B_BACKGROUND_APP;
 
 resource app_version {
 	major  = 2,
-	middle = 4,
+	middle = 9,
 	minor  = 0,
 
 	variety = B_APPV_DEVELOPMENT,
 	internal = 0,
 
 	short_info = "wpa_supplicant",
-	long_info = "wpa_supplicant © 2003-2015, Jouni Malinen <j@w1.fi>"
+	long_info = "wpa_supplicant © 2003-2019, Jouni Malinen <j@w1.fi>"
 };
