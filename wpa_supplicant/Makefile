@@ -1940,6 +1940,21 @@ wpa_supplicant: $(BCHECK) $(OBJS) $(EXTRA_progs)
 	mimeset -F wpa_supplicant
 endif
 
+APP_MIME_SIG=application/x-vnd.malinen-wpa_supplicant
+CATKEYS_DIR=wpa_gui-haiku/locales
+SRCS= \
+	wpa_gui-haiku/main_haiku.cpp \
+	wpa_gui-haiku/notify_haiku.cpp \
+	wpa_gui-haiku/WirelessConfigDialog.cpp
+
+wpa_gui-haiku/wpa_supplicant.pre : $(SRCS)
+	-cat $(SRCS) | $(CC) -E -x c++ -Iwpa_gui-haiku $(filter-out -MMD,$(CFLAGS)) -DB_COLLECTING_CATKEYS - | grep -av '^#' > $@
+
+catkeys: $(CATKEYS_DIR)/en.catkeys
+
+$(CATKEYS_DIR)/en.catkeys : $(CATKEYS_DIR) wpa_gui-haiku/wpa_supplicant.pre
+	collectcatkeys -s $(APP_MIME_SIG) wpa_gui-haiku/wpa_supplicant.pre -o $(CATKEYS_DIR)/en.catkeys
+
 eapol_test: $(OBJS_t)
 	$(Q)$(LDO) $(LDFLAGS) -o eapol_test $(OBJS_t) $(LIBS)
 	@$(E) "  LD " $@
@@ -2089,6 +2104,6 @@ clean:
 	rm -f libwpa_client.a
 	rm -f libwpa_client.so
 	rm -f libwpa_test1 libwpa_test2
-	rm -f wpa_gui-haiku/*.rsrc wpa_gui-haiku/*.o
+	rm -f wpa_gui-haiku/*.rsrc wpa_gui-haiku/*.o wpa_gui-haiku/*.pre
 
 -include $(OBJS:%.o=%.d)
