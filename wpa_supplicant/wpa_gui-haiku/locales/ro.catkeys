@@ -1,4 +1,4 @@
-1	Romanian	application/x-vnd.malinen-wpa_supplicant	1766492621
+1	Romanian	application/x-vnd.malinen-wpa_supplicant	4272080571
 Cancel	wpa_supplicant		Anulează
 Password:	wpa_supplicant		Parolă:
 Open	wpa_supplicant	Open network	Deschide
@@ -9,3 +9,5 @@ Network name:	wpa_supplicant		Nume de rețea:
 Authentication:	wpa_supplicant		Autentificare:
 WPA/WPA2	wpa_supplicant		WPA/WPA2
 OK	wpa_supplicant		OK
+Failed to join network. (Incorrect password?)	wpa_supplicant		Nu s-a putut alătura la rețea. (Parolă incorectă?)
+Password format invalid!	wpa_supplicant		Formatul parolei nu este valid!

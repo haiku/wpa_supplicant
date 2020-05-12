@@ -1,4 +1,4 @@
-1	Italian	application/x-vnd.malinen-wpa_supplicant	1766492621
+1	Italian	application/x-vnd.malinen-wpa_supplicant	4272080571
 Cancel	wpa_supplicant		Cancella
 Password:	wpa_supplicant		Password:
 Open	wpa_supplicant	Open network	Apri
@@ -9,3 +9,5 @@ Network name:	wpa_supplicant		Nome rete:
 Authentication:	wpa_supplicant		Autenticazione:
 WPA/WPA2	wpa_supplicant		WPA/WPA2
 OK	wpa_supplicant		OK
+Failed to join network. (Incorrect password?)	wpa_supplicant		Impossibile connettersi alla rete. (Password errata?)
+Password format invalid!	wpa_supplicant		Formato della password non valido!

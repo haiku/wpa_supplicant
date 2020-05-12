@@ -1,0 +1,13 @@
+1	Greek (Modern)	application/x-vnd.malinen-wpa_supplicant	4272080571
+Cancel	wpa_supplicant		Ακύρωση
+Password:	wpa_supplicant		Κωδικός πρόσβασης:
+Open	wpa_supplicant	Open network	Άνοιγμα
+Store this configuration	wpa_supplicant		Αποθήκευση ρυθμίσεων
+WEP	wpa_supplicant		WEP
+Connect to a WiFi network	wpa_supplicant		Συνδεθείτε σε δίκτυο WiFi
+Network name:	wpa_supplicant		Όνομα δικτύου:
+Authentication:	wpa_supplicant		Ταυτοποίηση:
+WPA/WPA2	wpa_supplicant		WPA/WPA2
+OK	wpa_supplicant		Εντάξει
+Failed to join network. (Incorrect password?)	wpa_supplicant		Η σύνδεση στο δίκτυο απέτυχε. (Λάθος κωδικός;)
+Password format invalid!	wpa_supplicant		Μη έγκυρη μορφή κωδικού πρόσβασης!

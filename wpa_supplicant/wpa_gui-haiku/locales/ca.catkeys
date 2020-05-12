@@ -1,0 +1,13 @@
+1	Catalan	application/x-vnd.malinen-wpa_supplicant	4272080571
+Cancel	wpa_supplicant		Cancel·la
+Password:	wpa_supplicant		Contrasenya:
+Open	wpa_supplicant	Open network	Obre
+Store this configuration	wpa_supplicant		Desa aquesta configuració
+WEP	wpa_supplicant		WEP
+Connect to a WiFi network	wpa_supplicant		Connecta a una xarxa WiFi
+Network name:	wpa_supplicant		Nom de la xarxa:
+Authentication:	wpa_supplicant		Autenticació:
+WPA/WPA2	wpa_supplicant		WPA / WPA2
+OK	wpa_supplicant		D'acord
+Failed to join network. (Incorrect password?)	wpa_supplicant		Ha fallat unir-se a la xarxa. (Contrasenya incorrecta?)
+Password format invalid!	wpa_supplicant		Format de la contrasenya no vàlid!

@@ -1,0 +1,13 @@
+1	Indonesian	application/x-vnd.malinen-wpa_supplicant	4272080571
+Cancel	wpa_supplicant		Batal
+Password:	wpa_supplicant		Kata kunci:
+Open	wpa_supplicant	Open network	Buka
+Store this configuration	wpa_supplicant		Simpan konfigurasi ini
+WEP	wpa_supplicant		WEP
+Connect to a WiFi network	wpa_supplicant		Sambungkan ke jaringan WIFI
+Network name:	wpa_supplicant		Nama Jaringan:
+Authentication:	wpa_supplicant		Otentikasi:
+WPA/WPA2	wpa_supplicant		WPA/WPA2
+OK	wpa_supplicant		OKE
+Failed to join network. (Incorrect password?)	wpa_supplicant		Failed to join network. (Incorrect password?)
+Password format invalid!	wpa_supplicant		Password format invalid!

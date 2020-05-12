@@ -1,4 +1,4 @@
-1	Russian	application/x-vnd.malinen-wpa_supplicant	1766492621
+1	Russian	application/x-vnd.malinen-wpa_supplicant	4272080571
 Cancel	wpa_supplicant		Отмена
 Password:	wpa_supplicant		Пароль:
 Open	wpa_supplicant	Open network	Открыть
@@ -9,3 +9,5 @@ Network name:	wpa_supplicant		Имя сети:
 Authentication:	wpa_supplicant		Аутентификация:
 WPA/WPA2	wpa_supplicant		WPA/WPA2
 OK	wpa_supplicant		OK
+Failed to join network. (Incorrect password?)	wpa_supplicant		Не удалось подключиться к сети. (Неверный пароль?)
+Password format invalid!	wpa_supplicant		Неверный формат пароля!
