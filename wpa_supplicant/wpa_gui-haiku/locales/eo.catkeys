@@ -1,0 +1,13 @@
+1	Esperanto	application/x-vnd.malinen-wpa_supplicant	4272080571
+Cancel	wpa_supplicant		Nuligi
+Password:	wpa_supplicant		Pasvorto:
+Open	wpa_supplicant	Open network	Malfermi
+Store this configuration	wpa_supplicant		Konservi tiun agordo
+WEP	wpa_supplicant		WEP
+Connect to a WiFi network	wpa_supplicant		Kupli ĉe sendrata reto
+Network name:	wpa_supplicant		Retnomo:
+Authentication:	wpa_supplicant		Aŭtentigo:
+WPA/WPA2	wpa_supplicant		WPA/WPA2
+OK	wpa_supplicant		Bone
+Failed to join network. (Incorrect password?)	wpa_supplicant		Malsukcesis aliĝi reton. (Malprava pasvorto?)
+Password format invalid!	wpa_supplicant		Malvalida pasvorta aranĝo!

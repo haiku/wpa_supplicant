@@ -1,4 +1,4 @@
-1	Hungarian	application/x-vnd.malinen-wpa_supplicant	1766492621
+1	Hungarian	application/x-vnd.malinen-wpa_supplicant	4272080571
 Cancel	wpa_supplicant		Megszakít
 Password:	wpa_supplicant		Jelszó:
 Open	wpa_supplicant	Open network	Megnyit
@@ -9,3 +9,5 @@ Network name:	wpa_supplicant		Hálózat neve:
 Authentication:	wpa_supplicant		Azonosítás:
 WPA/WPA2	wpa_supplicant		WPA/WPA2
 OK	wpa_supplicant		OK
+Failed to join network. (Incorrect password?)	wpa_supplicant		Nem sikerült csatlakozni a hálózathoz. Ellenőrizze a jelszót.
+Password format invalid!	wpa_supplicant		A jelszó formátuma nem megfelelő.

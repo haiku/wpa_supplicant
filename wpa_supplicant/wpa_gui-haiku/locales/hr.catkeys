@@ -1,0 +1,13 @@
+1	Croatian	application/x-vnd.malinen-wpa_supplicant	4272080571
+Cancel	wpa_supplicant		Otkaži
+Password:	wpa_supplicant		Lozinka:
+Open	wpa_supplicant	Open network	Otvori
+Store this configuration	wpa_supplicant		Spremi ovu konfiguraciju
+WEP	wpa_supplicant		WEP
+Connect to a WiFi network	wpa_supplicant		Spoji na WiFi mrežu
+Network name:	wpa_supplicant		Ime mreže:
+Authentication:	wpa_supplicant		Ovjera:
+WPA/WPA2	wpa_supplicant		WPA/WPA2
+OK	wpa_supplicant		U redu
+Failed to join network. (Incorrect password?)	wpa_supplicant		Failed to join network. (Incorrect password?)
+Password format invalid!	wpa_supplicant		Password format invalid!

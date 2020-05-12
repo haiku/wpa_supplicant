@@ -1,0 +1,13 @@
+1	Thai	application/x-vnd.malinen-wpa_supplicant	4272080571
+Cancel	wpa_supplicant		ยกเลิก
+Password:	wpa_supplicant		รหัสผ่าน:
+Open	wpa_supplicant	Open network	เปิด
+Store this configuration	wpa_supplicant		เก็บการกำหนดค่านี้
+WEP	wpa_supplicant		WEP
+Connect to a WiFi network	wpa_supplicant		เชื่อมต่อกับเครือข่าย WiFi
+Network name:	wpa_supplicant		ชื่อเครือข่าย:
+Authentication:	wpa_supplicant		รับรองความถูกต้อง:
+WPA/WPA2	wpa_supplicant		WPA/WPA2
+OK	wpa_supplicant		ตกลง
+Failed to join network. (Incorrect password?)	wpa_supplicant		ไม่สามารถเข้าร่วมเครือข่าย (รหัสผ่านผิดพลาด?)
+Password format invalid!	wpa_supplicant		Password format invalid!

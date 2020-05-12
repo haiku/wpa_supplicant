@@ -1,4 +1,4 @@
-1	Spanish	application/x-vnd.malinen-wpa_supplicant	1766492621
+1	Spanish	application/x-vnd.malinen-wpa_supplicant	4272080571
 Cancel	wpa_supplicant		Cancelar
 Password:	wpa_supplicant		Contraseña:
 Open	wpa_supplicant	Open network	Abrir
@@ -9,3 +9,5 @@ Network name:	wpa_supplicant		Nombre de la red:
 Authentication:	wpa_supplicant		Autenticación:
 WPA/WPA2	wpa_supplicant		WPA/WPA2
 OK	wpa_supplicant		Aceptar
+Failed to join network. (Incorrect password?)	wpa_supplicant		Hubo un error al conectarse a la red. (¿Contraseña incorrecta?)
+Password format invalid!	wpa_supplicant		El formato de la contraseña es inválido!
