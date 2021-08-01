@@ -1,13 +1,13 @@
 1	English (British)	application/x-vnd.malinen-wpa_supplicant	4272080571
+Authentication:	wpa_supplicant		Authentication:
 Cancel	wpa_supplicant		Cancel
-Password:	wpa_supplicant		Password:
+Connect to a WiFi network	wpa_supplicant		Connect to a WiFi network
+Failed to join network. (Incorrect password?)	wpa_supplicant		Failed to join network. (Incorrect password?)
+Network name:	wpa_supplicant		Network name:
+OK	wpa_supplicant		Alright
 Open	wpa_supplicant	Open network	Open
+Password format invalid!	wpa_supplicant		Password format invalid!
+Password:	wpa_supplicant		Password:
 Store this configuration	wpa_supplicant		Store this configuration
 WEP	wpa_supplicant		WEP
-Connect to a WiFi network	wpa_supplicant		Connect to a WiFi network
-Network name:	wpa_supplicant		Network name:
-Authentication:	wpa_supplicant		Authentication:
 WPA/WPA2	wpa_supplicant		WPA/WPA2
-OK	wpa_supplicant		Alright
-Failed to join network. (Incorrect password?)	wpa_supplicant		Failed to join network. (Incorrect password?)
-Password format invalid!	wpa_supplicant		Password format invalid!

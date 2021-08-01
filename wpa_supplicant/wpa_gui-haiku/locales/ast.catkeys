@@ -1,0 +1,13 @@
+1	Asturian	application/x-vnd.malinen-wpa_supplicant	4272080571
+Authentication:	wpa_supplicant		Autenticación:
+Cancel	wpa_supplicant		Encaboxar
+Connect to a WiFi network	wpa_supplicant		Coneutase a una rede WiFi
+Failed to join network. (Incorrect password?)	wpa_supplicant		Falló al unise a la rede. (¿Ye incorreuta la contraseña?)
+Network name:	wpa_supplicant		Nome de la rede:
+OK	wpa_supplicant		Aceutar
+Open	wpa_supplicant	Open network	Abrir
+Password format invalid!	wpa_supplicant		Nun val el formatu de la contraseña.
+Password:	wpa_supplicant		Contraseña:
+Store this configuration	wpa_supplicant		Atroxar esti axuste
+WEP	wpa_supplicant		WEP
+WPA/WPA2	wpa_supplicant		WPA/WPA2

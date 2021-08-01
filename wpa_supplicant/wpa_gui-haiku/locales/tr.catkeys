@@ -1,13 +1,13 @@
 1	Turkish	application/x-vnd.malinen-wpa_supplicant	4272080571
+Authentication:	wpa_supplicant		Kimlik doğrulama:
 Cancel	wpa_supplicant		İptal
-Password:	wpa_supplicant		Parola:
+Connect to a WiFi network	wpa_supplicant		Bir Wi-Fi ağına bağlan
+Failed to join network. (Incorrect password?)	wpa_supplicant		Ağa bağlanılamadı. Parolanız yanlış olabilir.
+Network name:	wpa_supplicant		Ağ adı:
+OK	wpa_supplicant		Tamam
 Open	wpa_supplicant	Open network	Aç
+Password format invalid!	wpa_supplicant		Parola biçimi geçersiz!
+Password:	wpa_supplicant		Parola:
 Store this configuration	wpa_supplicant		Bu yapılandırmayı sakla
 WEP	wpa_supplicant		WEP
-Connect to a WiFi network	wpa_supplicant		Bir Wi-Fi ağına bağlan
-Network name:	wpa_supplicant		Ağ adı:
-Authentication:	wpa_supplicant		Kimlik doğrulama:
 WPA/WPA2	wpa_supplicant		WPA/WPA2
-OK	wpa_supplicant		Tamam
-Failed to join network. (Incorrect password?)	wpa_supplicant		Ağa bağlanılamadı. Parolanız yanlış olabilir.
-Password format invalid!	wpa_supplicant		Parola biçimi geçersiz!
