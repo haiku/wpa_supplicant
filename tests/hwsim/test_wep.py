@@ -11,11 +11,12 @@ import subprocess
 from remotehost import remote_compatible
 import hostapd
 import hwsim_utils
-from utils import clear_regdom
+from utils import *
 
 @remote_compatible
 def test_wep_open_auth(dev, apdev):
     """WEP Open System authentication"""
+    check_wep_capa(dev[0])
     hapd = hostapd.add_ap(apdev[0],
                           {"ssid": "wep-open",
                            "wep_key0": '"hello"'})
@@ -35,6 +36,8 @@ def test_wep_open_auth(dev, apdev):
 @remote_compatible
 def test_wep_shared_key_auth(dev, apdev):
     """WEP Shared Key authentication"""
+    check_wep_capa(dev[0])
+    check_wep_capa(dev[1])
     hapd = hostapd.add_ap(apdev[0],
                           {"ssid": "wep-shared-key",
                            "wep_key0": '"hello12345678"',
@@ -50,6 +53,7 @@ def test_wep_shared_key_auth(dev, apdev):
 @remote_compatible
 def test_wep_shared_key_auth_not_allowed(dev, apdev):
     """WEP Shared Key authentication not allowed"""
+    check_wep_capa(dev[0])
     hostapd.add_ap(apdev[0],
                    {"ssid": "wep-shared-key",
                     "wep_key0": '"hello12345678"',
@@ -63,6 +67,9 @@ def test_wep_shared_key_auth_not_allowed(dev, apdev):
 
 def test_wep_shared_key_auth_multi_key(dev, apdev):
     """WEP Shared Key authentication with multiple keys"""
+    check_wep_capa(dev[0])
+    check_wep_capa(dev[1])
+    check_wep_capa(dev[2])
     hapd = hostapd.add_ap(apdev[0],
                           {"ssid": "wep-shared-key",
                            "wep_key0": '"hello12345678"',
@@ -92,6 +99,7 @@ def test_wep_shared_key_auth_multi_key(dev, apdev):
 
 def test_wep_ht_vht(dev, apdev):
     """WEP and HT/VHT"""
+    check_wep_capa(dev[0])
     dev[0].flush_scan_cache()
     try:
         hapd = None
@@ -122,8 +130,25 @@ def test_wep_ht_vht(dev, apdev):
         dev[0].request("DISCONNECT")
         clear_regdom(hapd, dev)
 
+def test_wep_he(dev, apdev):
+    """WEP and HE"""
+    check_wep_capa(dev[0])
+    dev[0].flush_scan_cache()
+    params = {"ssid": "test-he-wep",
+              "ieee80211ax": "1",
+              "wep_key0": '"hello"'}
+    hapd = hostapd.add_ap(apdev[0], params)
+    dev[0].connect("test-he-wep", scan_freq="2412", key_mgmt="NONE",
+                   wep_key0='"hello"')
+    hwsim_utils.test_connectivity(dev[0], hapd)
+    status = hapd.get_status()
+    logger.info("hostapd STATUS: " + str(status))
+    if status["ieee80211ax"] != "0":
+        raise Exception("Unexpected STATUS ieee80211ax value")
+
 def test_wep_ifdown(dev, apdev):
     """AP with WEP and external ifconfig down"""
+    check_wep_capa(dev[0])
     hapd = hostapd.add_ap(apdev[0],
                           {"ssid": "wep-open",
                            "wep_key0": '"hello"'})

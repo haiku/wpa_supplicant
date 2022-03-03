@@ -18,7 +18,7 @@ import hwsim_utils
 from hwsim import HWSimRadio
 import hostapd
 from tshark import run_tshark
-from utils import HwsimSkip, alloc_fail, fail_test, wait_fail_trigger, skip_with_fips, parse_ie
+from utils import *
 from wlantest import Wlantest
 from test_ap_psk import check_mib, find_wpas_process, read_process_memory, verify_not_present, get_key_locations
 from test_rrm import check_beacon_req
@@ -130,17 +130,19 @@ def ft_params2_r0kh_mismatch(rsn=True, ssid=None, passphrase=None):
 
 def run_roams(dev, apdev, hapd0, hapd1, ssid, passphrase, over_ds=False,
               sae=False, eap=False, fail_test=False, roams=1,
-              pairwise_cipher="CCMP", group_cipher="TKIP CCMP", ptk_rekey="0",
+              pairwise_cipher="CCMP", group_cipher="CCMP", ptk_rekey="0",
               test_connectivity=True, eap_identity="gpsk user", conndev=False,
               force_initial_conn_to_first_ap=False, sha384=False,
               group_mgmt=None, ocv=None, sae_password=None,
               sae_password_id=None, sae_and_psk=False, pmksa_caching=False,
-              roam_with_reassoc=False, also_non_ft=False, only_one_way=False):
+              roam_with_reassoc=False, also_non_ft=False, only_one_way=False,
+              wait_before_roam=0, return_after_initial=False, ieee80211w="1",
+              sae_transition=False, beacon_prot=False):
     logger.info("Connect to first AP")
 
     copts = {}
     copts["proto"] = "WPA2"
-    copts["ieee80211w"] = "1"
+    copts["ieee80211w"] = ieee80211w
     copts["scan_freq"] = "2412"
     copts["pairwise"] = pairwise_cipher
     copts["group"] = group_cipher
@@ -149,6 +151,8 @@ def run_roams(dev, apdev, hapd0, hapd1, ssid, passphrase, over_ds=False,
         copts["group_mgmt"] = group_mgmt
     if ocv:
         copts["ocv"] = ocv
+    if beacon_prot:
+        copts["beacon_prot"] = "1"
     if eap:
         if pmksa_caching:
             copts["ft_eap_pmksa_caching"] = "1"
@@ -160,7 +164,9 @@ def run_roams(dev, apdev, hapd0, hapd1, ssid, passphrase, over_ds=False,
         copts["identity"] = eap_identity
         copts["password"] = "abcdefghijklmnop0123456789abcdef"
     else:
-        if sae:
+        if sae_transition:
+            copts["key_mgmt"] = "FT-SAE FT-PSK"
+        elif sae:
             copts["key_mgmt"] = "SAE FT-SAE" if sae_and_psk else "FT-SAE"
         else:
             copts["key_mgmt"] = "FT-PSK"
@@ -174,6 +180,10 @@ def run_roams(dev, apdev, hapd0, hapd1, ssid, passphrase, over_ds=False,
         copts["bssid"] = apdev[0]['bssid']
     netw = dev.connect(ssid, **copts)
     if pmksa_caching:
+        if dev.get_status_field('bssid') == apdev[0]['bssid']:
+            hapd0.wait_sta()
+        else:
+            hapd1.wait_sta()
         dev.request("DISCONNECT")
         dev.wait_disconnected()
         dev.request("RECONNECT")
@@ -205,9 +215,18 @@ def run_roams(dev, apdev, hapd0, hapd1, ssid, passphrase, over_ds=False,
         else:
             hwsim_utils.test_connectivity(dev, hapd1ap)
 
+    if return_after_initial:
+        return ap2['bssid']
+
+    if wait_before_roam:
+        time.sleep(wait_before_roam)
     dev.scan_for_bss(ap2['bssid'], freq="2412")
 
     for i in range(0, roams):
+        dev.dump_monitor()
+        hapd1ap.dump_monitor()
+        hapd2ap.dump_monitor()
+
         # Roaming artificially fast can make data test fail because the key is
         # set later.
         time.sleep(0.01)
@@ -226,10 +245,17 @@ def run_roams(dev, apdev, hapd0, hapd1, ssid, passphrase, over_ds=False,
             raise Exception("Did not connect to correct AP")
         if (i == 0 or i == roams - 1) and test_connectivity:
             hapd2ap.wait_sta()
+            dev.dump_monitor()
+            hapd1ap.dump_monitor()
+            hapd2ap.dump_monitor()
             if conndev:
                 hwsim_utils.test_connectivity_iface(dev, hapd2ap, conndev)
             else:
                 hwsim_utils.test_connectivity(dev, hapd2ap)
+
+        dev.dump_monitor()
+        hapd1ap.dump_monitor()
+        hapd2ap.dump_monitor()
 
         if only_one_way:
             return
@@ -249,6 +275,9 @@ def run_roams(dev, apdev, hapd0, hapd1, ssid, passphrase, over_ds=False,
             raise Exception("Did not connect to correct AP")
         if (i == 0 or i == roams - 1) and test_connectivity:
             hapd1ap.wait_sta()
+            dev.dump_monitor()
+            hapd1ap.dump_monitor()
+            hapd2ap.dump_monitor()
             if conndev:
                 hwsim_utils.test_connectivity_iface(dev, hapd1ap, conndev)
             else:
@@ -326,50 +355,62 @@ def test_ap_ft_vlan(dev, apdev):
     """WPA2-PSK-FT AP with VLAN"""
     ssid = "test-ft"
     passphrase = "12345678"
+    filename = hostapd.acl_file(dev, apdev, 'hostapd.accept')
+    hostapd.send_file(apdev[0], filename, filename)
+    hostapd.send_file(apdev[1], filename, filename)
 
     params = ft_params1(ssid=ssid, passphrase=passphrase)
     params['dynamic_vlan'] = "1"
-    params['accept_mac_file'] = "hostapd.accept"
+    params['accept_mac_file'] = filename
     hapd0 = hostapd.add_ap(apdev[0]['ifname'], params)
 
     params = ft_params2(ssid=ssid, passphrase=passphrase)
     params['dynamic_vlan'] = "1"
-    params['accept_mac_file'] = "hostapd.accept"
+    params['accept_mac_file'] = filename
     hapd1 = hostapd.add_ap(apdev[1]['ifname'], params)
 
     run_roams(dev[0], apdev, hapd0, hapd1, ssid, passphrase, conndev="brvlan1")
     if "[WPA2-FT/PSK-CCMP]" not in dev[0].request("SCAN_RESULTS"):
         raise Exception("Scan results missing RSN element info")
+    if filename.startswith('/tmp/'):
+        os.unlink(filename)
 
 def test_ap_ft_vlan_disconnected(dev, apdev):
     """WPA2-PSK-FT AP with VLAN and local key generation"""
     ssid = "test-ft"
     passphrase = "12345678"
+    filename = hostapd.acl_file(dev, apdev, 'hostapd.accept')
+    hostapd.send_file(apdev[0], filename, filename)
+    hostapd.send_file(apdev[1], filename, filename)
 
     params = ft_params1a(ssid=ssid, passphrase=passphrase)
     params['dynamic_vlan'] = "1"
-    params['accept_mac_file'] = "hostapd.accept"
+    params['accept_mac_file'] = filename
     params['ft_psk_generate_local'] = "1"
     hapd0 = hostapd.add_ap(apdev[0]['ifname'], params)
 
     params = ft_params2a(ssid=ssid, passphrase=passphrase)
     params['dynamic_vlan'] = "1"
-    params['accept_mac_file'] = "hostapd.accept"
+    params['accept_mac_file'] = filename
     params['ft_psk_generate_local'] = "1"
     hapd1 = hostapd.add_ap(apdev[1]['ifname'], params)
 
     run_roams(dev[0], apdev, hapd0, hapd1, ssid, passphrase, conndev="brvlan1")
     if "[WPA2-FT/PSK-CCMP]" not in dev[0].request("SCAN_RESULTS"):
         raise Exception("Scan results missing RSN element info")
+    if filename.startswith('/tmp/'):
+        os.unlink(filename)
 
 def test_ap_ft_vlan_2(dev, apdev):
     """WPA2-PSK-FT AP with VLAN and dest-AP does not have VLAN info locally"""
     ssid = "test-ft"
     passphrase = "12345678"
+    filename = hostapd.acl_file(dev, apdev, 'hostapd.accept')
+    hostapd.send_file(apdev[0], filename, filename)
 
     params = ft_params1(ssid=ssid, passphrase=passphrase)
     params['dynamic_vlan'] = "1"
-    params['accept_mac_file'] = "hostapd.accept"
+    params['accept_mac_file'] = filename
     hapd0 = hostapd.add_ap(apdev[0]['ifname'], params)
 
     params = ft_params2(ssid=ssid, passphrase=passphrase)
@@ -377,9 +418,11 @@ def test_ap_ft_vlan_2(dev, apdev):
     hapd1 = hostapd.add_ap(apdev[1]['ifname'], params)
 
     run_roams(dev[0], apdev, hapd0, hapd1, ssid, passphrase, conndev="brvlan1",
-	      force_initial_conn_to_first_ap=True)
+              force_initial_conn_to_first_ap=True)
     if "[WPA2-FT/PSK-CCMP]" not in dev[0].request("SCAN_RESULTS"):
         raise Exception("Scan results missing RSN element info")
+    if filename.startswith('/tmp/'):
+        os.unlink(filename)
 
 def test_ap_ft_many(dev, apdev):
     """WPA2-PSK-FT AP multiple times"""
@@ -397,22 +440,28 @@ def test_ap_ft_many_vlan(dev, apdev):
     """WPA2-PSK-FT AP with VLAN multiple times"""
     ssid = "test-ft"
     passphrase = "12345678"
+    filename = hostapd.acl_file(dev, apdev, 'hostapd.accept')
+    hostapd.send_file(apdev[0], filename, filename)
+    hostapd.send_file(apdev[1], filename, filename)
 
     params = ft_params1(ssid=ssid, passphrase=passphrase)
     params['dynamic_vlan'] = "1"
-    params['accept_mac_file'] = "hostapd.accept"
+    params['accept_mac_file'] = filename
     hapd0 = hostapd.add_ap(apdev[0]['ifname'], params)
 
     params = ft_params2(ssid=ssid, passphrase=passphrase)
     params['dynamic_vlan'] = "1"
-    params['accept_mac_file'] = "hostapd.accept"
+    params['accept_mac_file'] = filename
     hapd1 = hostapd.add_ap(apdev[1]['ifname'], params)
 
     run_roams(dev[0], apdev, hapd0, hapd1, ssid, passphrase, roams=50,
               conndev="brvlan1")
+    if filename.startswith('/tmp/'):
+        os.unlink(filename)
 
 def test_ap_ft_mixed(dev, apdev):
     """WPA2-PSK-FT mixed-mode AP"""
+    skip_without_tkip(dev[0])
     ssid = "test-ft-mixed"
     passphrase = "12345678"
 
@@ -425,10 +474,61 @@ def test_ap_ft_mixed(dev, apdev):
     params = ft_params2(rsn=False, ssid=ssid, passphrase=passphrase)
     hapd1 = hostapd.add_ap(apdev[1], params)
 
-    run_roams(dev[0], apdev, hapd, hapd1, ssid, passphrase)
+    run_roams(dev[0], apdev, hapd, hapd1, ssid, passphrase,
+              group_cipher="TKIP CCMP")
 
 def test_ap_ft_pmf(dev, apdev):
     """WPA2-PSK-FT AP with PMF"""
+    run_ap_ft_pmf(dev, apdev, "1")
+
+def test_ap_ft_pmf_over_ds(dev, apdev):
+    """WPA2-PSK-FT AP with PMF (over DS)"""
+    run_ap_ft_pmf(dev, apdev, "1", over_ds=True)
+
+def test_ap_ft_pmf_required(dev, apdev):
+    """WPA2-PSK-FT AP with PMF required on STA"""
+    run_ap_ft_pmf(dev, apdev, "2")
+
+def test_ap_ft_pmf_required_over_ds(dev, apdev):
+    """WPA2-PSK-FT AP with PMF required on STA (over DS)"""
+    run_ap_ft_pmf(dev, apdev, "2", over_ds=True)
+
+def test_ap_ft_pmf_beacon_prot(dev, apdev):
+    """WPA2-PSK-FT AP with PMF and beacon protection"""
+    run_ap_ft_pmf(dev, apdev, "1", beacon_prot=True)
+
+def run_ap_ft_pmf(dev, apdev, ieee80211w, over_ds=False, beacon_prot=False):
+    ssid = "test-ft"
+    passphrase = "12345678"
+
+    params = ft_params1(ssid=ssid, passphrase=passphrase)
+    params["ieee80211w"] = "2"
+    if beacon_prot:
+        params["beacon_prot"] = "1"
+    hapd0 = hostapd.add_ap(apdev[0], params)
+    params = ft_params2(ssid=ssid, passphrase=passphrase)
+    params["ieee80211w"] = "2"
+    if beacon_prot:
+        params["beacon_prot"] = "1"
+    hapd1 = hostapd.add_ap(apdev[1], params)
+
+    Wlantest.setup(hapd0)
+    wt = Wlantest()
+    wt.flush()
+    wt.add_passphrase(passphrase)
+
+    run_roams(dev[0], apdev, hapd0, hapd1, ssid, passphrase,
+              ieee80211w=ieee80211w, over_ds=over_ds, beacon_prot=beacon_prot)
+
+def test_ap_ft_pmf_required_mismatch(dev, apdev):
+    """WPA2-PSK-FT AP with PMF required on STA but AP2 not enabling PMF"""
+    run_ap_ft_pmf_required_mismatch(dev, apdev)
+
+def test_ap_ft_pmf_required_mismatch_over_ds(dev, apdev):
+    """WPA2-PSK-FT AP with PMF required on STA but AP2 not enabling PMF (over DS)"""
+    run_ap_ft_pmf_required_mismatch(dev, apdev, over_ds=True)
+
+def run_ap_ft_pmf_required_mismatch(dev, apdev, over_ds=False):
     ssid = "test-ft"
     passphrase = "12345678"
 
@@ -436,10 +536,12 @@ def test_ap_ft_pmf(dev, apdev):
     params["ieee80211w"] = "2"
     hapd0 = hostapd.add_ap(apdev[0], params)
     params = ft_params2(ssid=ssid, passphrase=passphrase)
-    params["ieee80211w"] = "2"
+    params["ieee80211w"] = "0"
     hapd1 = hostapd.add_ap(apdev[1], params)
 
-    run_roams(dev[0], apdev, hapd0, hapd1, ssid, passphrase)
+    run_roams(dev[0], apdev, hapd0, hapd1, ssid, passphrase, ieee80211w="2",
+              force_initial_conn_to_first_ap=True, fail_test=True,
+              over_ds=over_ds)
 
 def test_ap_ft_pmf_bip_cmac_128(dev, apdev):
     """WPA2-PSK-FT AP with PMF/BIP-CMAC-128"""
@@ -602,7 +704,7 @@ def run_ap_ft_separate_hostapd(dev, apdev, params, over_ds):
         hapd1 = hostapd.add_ap(apdev2[1], params)
 
         run_roams(dev[0], apdev2, hapd0, hapd1, ssid, passphrase,
-                  over_ds=over_ds, test_connectivity=False)
+                  over_ds=over_ds, test_connectivity=False, roams=2)
 
         hglobal.terminate()
 
@@ -653,20 +755,25 @@ def test_ap_ft_vlan_over_ds(dev, apdev):
     """WPA2-PSK-FT AP over DS with VLAN"""
     ssid = "test-ft"
     passphrase = "12345678"
+    filename = hostapd.acl_file(dev, apdev, 'hostapd.accept')
+    hostapd.send_file(apdev[0], filename, filename)
+    hostapd.send_file(apdev[1], filename, filename)
 
     params = ft_params1(ssid=ssid, passphrase=passphrase)
     params['dynamic_vlan'] = "1"
-    params['accept_mac_file'] = "hostapd.accept"
+    params['accept_mac_file'] = filename
     hapd0 = hostapd.add_ap(apdev[0]['ifname'], params)
     params = ft_params2(ssid=ssid, passphrase=passphrase)
     params['dynamic_vlan'] = "1"
-    params['accept_mac_file'] = "hostapd.accept"
+    params['accept_mac_file'] = filename
     hapd1 = hostapd.add_ap(apdev[1]['ifname'], params)
 
     run_roams(dev[0], apdev, hapd0, hapd1, ssid, passphrase, over_ds=True,
               conndev="brvlan1")
     check_mib(dev[0], [("dot11RSNAAuthenticationSuiteRequested", "00-0f-ac-4"),
                        ("dot11RSNAAuthenticationSuiteSelected", "00-0f-ac-4")])
+    if filename.startswith('/tmp/'):
+        os.unlink(filename)
 
 def test_ap_ft_over_ds_many(dev, apdev):
     """WPA2-PSK-FT AP over DS multiple times"""
@@ -685,18 +792,23 @@ def test_ap_ft_vlan_over_ds_many(dev, apdev):
     """WPA2-PSK-FT AP over DS with VLAN multiple times"""
     ssid = "test-ft"
     passphrase = "12345678"
+    filename = hostapd.acl_file(dev, apdev, 'hostapd.accept')
+    hostapd.send_file(apdev[0], filename, filename)
+    hostapd.send_file(apdev[1], filename, filename)
 
     params = ft_params1(ssid=ssid, passphrase=passphrase)
     params['dynamic_vlan'] = "1"
-    params['accept_mac_file'] = "hostapd.accept"
+    params['accept_mac_file'] = filename
     hapd0 = hostapd.add_ap(apdev[0]['ifname'], params)
     params = ft_params2(ssid=ssid, passphrase=passphrase)
     params['dynamic_vlan'] = "1"
-    params['accept_mac_file'] = "hostapd.accept"
+    params['accept_mac_file'] = filename
     hapd1 = hostapd.add_ap(apdev[1]['ifname'], params)
 
     run_roams(dev[0], apdev, hapd0, hapd1, ssid, passphrase, over_ds=True,
               roams=50, conndev="brvlan1")
+    if filename.startswith('/tmp/'):
+        os.unlink(filename)
 
 @remote_compatible
 def test_ap_ft_over_ds_unknown_target(dev, apdev):
@@ -890,22 +1002,31 @@ def test_ap_ft_over_ds_pull_vlan(dev, apdev):
     """WPA2-PSK-FT AP over DS (pull PMK) with VLAN"""
     ssid = "test-ft"
     passphrase = "12345678"
+    filename = hostapd.acl_file(dev, apdev, 'hostapd.accept')
+    hostapd.send_file(apdev[0], filename, filename)
+    hostapd.send_file(apdev[1], filename, filename)
 
     params = ft_params1(ssid=ssid, passphrase=passphrase)
     params["pmk_r1_push"] = "0"
     params['dynamic_vlan'] = "1"
-    params['accept_mac_file'] = "hostapd.accept"
+    params['accept_mac_file'] = filename
     hapd0 = hostapd.add_ap(apdev[0]['ifname'], params)
     params = ft_params2(ssid=ssid, passphrase=passphrase)
     params["pmk_r1_push"] = "0"
     params['dynamic_vlan'] = "1"
-    params['accept_mac_file'] = "hostapd.accept"
+    params['accept_mac_file'] = filename
     hapd1 = hostapd.add_ap(apdev[1]['ifname'], params)
 
     run_roams(dev[0], apdev, hapd0, hapd1, ssid, passphrase, over_ds=True,
               conndev="brvlan1")
+    if filename.startswith('/tmp/'):
+        os.unlink(filename)
 
-def start_ft_sae(dev, apdev, wpa_ptk_rekey=None):
+def start_ft_sae(dev, apdev, wpa_ptk_rekey=None, sae_pwe=None,
+                 rsne_override=None, rsnxe_override=None,
+                 no_beacon_rsnxe2=False, ext_key_id=False,
+                 skip_prune_assoc=False, ft_rsnxe_used=False,
+                 sae_transition=False):
     if "SAE" not in dev.get_capability("auth_alg"):
         raise HwsimSkip("SAE not supported")
     ssid = "test-ft"
@@ -915,14 +1036,41 @@ def start_ft_sae(dev, apdev, wpa_ptk_rekey=None):
     params['wpa_key_mgmt'] = "FT-SAE"
     if wpa_ptk_rekey:
         params['wpa_ptk_rekey'] = str(wpa_ptk_rekey)
+    if sae_pwe is not None:
+        params['sae_pwe'] = sae_pwe
+    if rsne_override:
+        params['rsne_override_ft'] = rsne_override
+    if rsnxe_override:
+        params['rsnxe_override_ft'] = rsnxe_override
+    if ext_key_id:
+        params['extended_key_id'] = '1'
+    if skip_prune_assoc:
+        params['skip_prune_assoc'] = '1'
+    if ft_rsnxe_used:
+        params['ft_rsnxe_used'] = '1'
     hapd0 = hostapd.add_ap(apdev[0], params)
     params = ft_params2(ssid=ssid, passphrase=passphrase)
-    params['wpa_key_mgmt'] = "FT-SAE"
+    if not sae_transition:
+        params['wpa_key_mgmt'] = "FT-SAE"
     if wpa_ptk_rekey:
         params['wpa_ptk_rekey'] = str(wpa_ptk_rekey)
+    if sae_pwe is not None:
+        params['sae_pwe'] = sae_pwe
+    if rsne_override:
+        params['rsne_override_ft'] = rsne_override
+    if rsnxe_override:
+        params['rsnxe_override_ft'] = rsnxe_override
+    if no_beacon_rsnxe2:
+        params['no_beacon_rsnxe'] = "1"
+    if ext_key_id:
+        params['extended_key_id'] = '1'
+    if skip_prune_assoc:
+        params['skip_prune_assoc'] = '1'
+    if ft_rsnxe_used:
+        params['ft_rsnxe_used'] = '1'
     hapd1 = hostapd.add_ap(apdev[1], params)
     key_mgmt = hapd1.get_config()['key_mgmt']
-    if key_mgmt.split(' ')[0] != "FT-SAE":
+    if key_mgmt.split(' ')[0] != "FT-SAE" and not sae_transition:
         raise Exception("Unexpected GET_CONFIG(key_mgmt): " + key_mgmt)
 
     dev.request("SET sae_groups ")
@@ -932,6 +1080,60 @@ def test_ap_ft_sae(dev, apdev):
     """WPA2-PSK-FT-SAE AP"""
     hapd0, hapd1 = start_ft_sae(dev[0], apdev)
     run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678", sae=True)
+
+def test_ap_ft_sae_transition(dev, apdev):
+    """WPA2-PSK-FT-SAE/PSK AP"""
+    hapd0, hapd1 = start_ft_sae(dev[0], apdev, sae_transition=True)
+    run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678",
+              sae_transition=True)
+
+def test_ap_ft_sae_h2e(dev, apdev):
+    """WPA2-PSK-FT-SAE AP (H2E)"""
+    try:
+        dev[0].set("sae_pwe", "2")
+        hapd0, hapd1 = start_ft_sae(dev[0], apdev, sae_pwe="2")
+        run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678", sae=True)
+    finally:
+        dev[0].set("sae_pwe", "0")
+
+def test_ap_ft_sae_h2e_and_loop(dev, apdev):
+    """WPA2-PSK-FT-SAE AP (AP H2E, STA loop)"""
+    dev[0].set("sae_pwe", "0")
+    hapd0, hapd1 = start_ft_sae(dev[0], apdev, sae_pwe="2")
+    run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678", sae=True)
+
+def test_ap_ft_sae_h2e_and_loop2(dev, apdev):
+    """WPA2-PSK-FT-SAE AP (AP loop, STA H2E)"""
+    try:
+        dev[0].set("sae_pwe", "2")
+        hapd0, hapd1 = start_ft_sae(dev[0], apdev, sae_pwe="0")
+        run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678", sae=True)
+    finally:
+        dev[0].set("sae_pwe", "0")
+
+def test_ap_ft_sae_h2e_downgrade_attack(dev, apdev):
+    """WPA2-PSK-FT-SAE AP (H2E downgrade attack)"""
+    try:
+        dev[0].set("sae_pwe", "2")
+        hapd0, hapd1 = start_ft_sae(dev[0], apdev, sae_pwe="2",
+                                    no_beacon_rsnxe2=True)
+        run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678", sae=True,
+                  force_initial_conn_to_first_ap=True,
+                  return_after_initial=True)
+        dev[0].scan_for_bss(hapd1.own_addr(), freq="2412")
+        if "OK" not in dev[0].request("ROAM " + hapd1.own_addr()):
+            raise Exception("ROAM command failed")
+        # The target AP is expected to discard Reassociation Response frame due
+        # to RSNXE Used mismatch. This will result in roaming timeout and
+        # returning back to the old AP.
+        ev = dev[0].wait_event(["CTRL-EVENT-ASSOC-REJECT",
+                                "CTRL-EVENT-CONNECTED"], timeout=10)
+        if ev and "CTRL-EVENT-ASSOC-REJECT" in ev:
+            pass
+        elif ev and hapd1.own_addr() in ev:
+            raise Exception("Roaming succeeded unexpectedly")
+    finally:
+        dev[0].set("sae_pwe", "0")
 
 def test_ap_ft_sae_ptk_rekey0(dev, apdev):
     """WPA2-PSK-FT-SAE AP and PTK rekey triggered by station"""
@@ -953,6 +1155,24 @@ def test_ap_ft_sae_ptk_rekey_ap(dev, apdev):
     run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678", sae=True,
               only_one_way=True)
     check_ptk_rekey(dev[0], hapd0, hapd1)
+
+def test_ap_ft_sae_ptk_rekey_ap_ext_key_id(dev, apdev):
+    """WPA2-PSK-FT-SAE AP and PTK rekey triggered by AP (Ext Key ID)"""
+    check_ext_key_id_capa(dev[0])
+    try:
+        dev[0].set("extended_key_id", "1")
+        hapd0, hapd1 = start_ft_sae(dev[0], apdev, wpa_ptk_rekey=2,
+                                    ext_key_id=True)
+        check_ext_key_id_capa(hapd0)
+        check_ext_key_id_capa(hapd1)
+        run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678", sae=True,
+                  only_one_way=True)
+        check_ptk_rekey(dev[0], hapd0, hapd1)
+        idx = int(dev[0].request("GET last_tk_key_idx"))
+        if idx != 1:
+            raise Exception("Unexpected Key ID after TK rekey: %d" % idx)
+    finally:
+        dev[0].set("extended_key_id", "0")
 
 def test_ap_ft_sae_over_ds(dev, apdev):
     """WPA2-PSK-FT-SAE AP over DS"""
@@ -980,6 +1200,105 @@ def test_ap_ft_sae_over_ds_ptk_rekey_ap(dev, apdev):
     run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678", sae=True,
               over_ds=True, only_one_way=True)
     check_ptk_rekey(dev[0], hapd0, hapd1)
+
+def test_ap_ft_sae_h2e_rsne_override(dev, apdev):
+    """WPA2-PSK-FT-SAE AP (H2E) and RSNE override (same value)"""
+    try:
+        dev[0].set("sae_pwe", "2")
+        hapd0, hapd1 = start_ft_sae(dev[0], apdev, sae_pwe="2",
+                                    rsne_override="30260100000fac040100000fac040100000fac090c000100" + 16*"ff")
+        run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678", sae=True)
+    finally:
+        dev[0].set("sae_pwe", "0")
+
+def test_ap_ft_sae_h2e_rsnxe_override(dev, apdev):
+    """WPA2-PSK-FT-SAE AP (H2E) and RSNXE override (same value)"""
+    try:
+        dev[0].set("sae_pwe", "2")
+        hapd0, hapd1 = start_ft_sae(dev[0], apdev, sae_pwe="2",
+                                    rsnxe_override="F40120")
+        run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678", sae=True)
+    finally:
+        dev[0].set("sae_pwe", "0")
+
+def test_ap_ft_sae_h2e_rsne_mismatch(dev, apdev):
+    """WPA2-PSK-FT-SAE AP (H2E) and RSNE mismatch"""
+    try:
+        dev[0].set("sae_pwe", "2")
+        hapd0, hapd1 = start_ft_sae(dev[0], apdev, sae_pwe="2",
+                                    rsne_override="30260100000fac040100000fac040100000fac090c010100" + 16*"ff")
+        run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678", sae=True,
+                  fail_test=True)
+    finally:
+        dev[0].set("sae_pwe", "0")
+
+def test_ap_ft_sae_h2e_rsne_mismatch_pmkr1name(dev, apdev):
+    """WPA2-PSK-FT-SAE AP (H2E) and RSNE mismatch in PMKR1Name"""
+    try:
+        dev[0].set("sae_pwe", "2")
+        hapd0, hapd1 = start_ft_sae(dev[0], apdev, sae_pwe="2",
+                                    rsne_override="30260100000fac040100000fac040100000fac090c000100" + 16*"00")
+        run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678", sae=True,
+                  fail_test=True)
+    finally:
+        dev[0].set("sae_pwe", "0")
+
+def test_ap_ft_sae_h2e_rsnxe_mismatch(dev, apdev):
+    """WPA2-PSK-FT-SAE AP (H2E) and RSNXE mismatch"""
+    try:
+        dev[0].set("sae_pwe", "2")
+        hapd0, hapd1 = start_ft_sae(dev[0], apdev, sae_pwe="2",
+                                    rsnxe_override="F40160")
+        run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678", sae=True,
+                  fail_test=True)
+    finally:
+        dev[0].set("sae_pwe", "0")
+
+def test_ap_ft_sae_rsnxe_used_mismatch(dev, apdev):
+    """FT-SAE AP and unexpected RSNXE Used in ReassocReq"""
+    try:
+        hapd0, hapd1 = start_ft_sae(dev[0], apdev, sae_pwe="2")
+        dev[0].set("sae_pwe", "0")
+        dev[0].set("ft_rsnxe_used", "1")
+        next = run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678",
+                         sae=True, return_after_initial=True)
+        if "OK" not in dev[0].request("ROAM " + next):
+            raise Exception("ROAM command failed")
+        # The target AP is expected to discard Reassociation Request frame due
+        # to RSNXE Used mismatch. This will result in roaming timeout and
+        # returning back to the old AP.
+        ev = dev[0].wait_event(["CTRL-EVENT-CONNECTED"], timeout=5)
+        if ev and next in ev:
+            raise Exception("Roaming succeeded unexpectedly")
+    finally:
+        dev[0].set("sae_pwe", "0")
+
+def test_ap_ft_sae_rsnxe_used_mismatch2(dev, apdev):
+    """FT-SAE AP and unexpected RSNXE Used in ReassocResp"""
+    try:
+        hapd0, hapd1 = start_ft_sae(dev[0], apdev, sae_pwe="0",
+                                    ft_rsnxe_used=True)
+        dev[0].set("sae_pwe", "2")
+        next = run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678",
+                         sae=True, return_after_initial=True)
+        if "OK" not in dev[0].request("ROAM " + next):
+            raise Exception("ROAM command failed")
+        # The STA is expected to discard Reassociation Response frame due to
+        # RSNXE Used mismatch. This will result in returning back to the old AP.
+        ev = dev[0].wait_disconnected()
+        if next not in ev:
+            raise Exception("Unexpected disconnection BSSID: " + ev)
+        if "reason=13 locally_generated=1" not in ev:
+            raise Exception("Unexpected disconnection reason: " + ev)
+        ev = dev[0].wait_connected()
+        if next in ev:
+            raise Exception("Roaming succeeded unexpectedly")
+
+        hapd0.set("ft_rsnxe_used", "0")
+        hapd1.set("ft_rsnxe_used", "0")
+        dev[0].roam(next);
+    finally:
+        dev[0].set("sae_pwe", "0")
 
 def test_ap_ft_sae_pw_id(dev, apdev):
     """FT-SAE with Password Identifier"""
@@ -1043,6 +1362,60 @@ def test_ap_ft_sae_pmksa_caching(dev, apdev):
     dev[0].request("SET sae_groups ")
     run_roams(dev[0], apdev, hapd0, hapd, ssid, passphrase, sae=True,
               pmksa_caching=True)
+
+def test_ap_ft_sae_pmksa_caching_pwe(dev, apdev):
+    """WPA2-FT-SAE AP and PMKSA caching for initial mobility domain association (STA PWE both)"""
+    if "SAE" not in dev[0].get_capability("auth_alg"):
+        raise HwsimSkip("SAE not supported")
+    ssid = "test-ft"
+    passphrase = "12345678"
+
+    params = ft_params1(ssid=ssid, passphrase=passphrase)
+    params['wpa_key_mgmt'] = "FT-SAE"
+    hapd0 = hostapd.add_ap(apdev[0], params)
+    params = ft_params2(ssid=ssid, passphrase=passphrase)
+    params['wpa_key_mgmt'] = "FT-SAE"
+    hapd = hostapd.add_ap(apdev[1], params)
+    key_mgmt = hapd.get_config()['key_mgmt']
+    if key_mgmt.split(' ')[0] != "FT-SAE":
+        raise Exception("Unexpected GET_CONFIG(key_mgmt): " + key_mgmt)
+
+    try:
+        dev[0].request("SET sae_groups ")
+        dev[0].set("sae_pwe", "2")
+        run_roams(dev[0], apdev, hapd0, hapd, ssid, passphrase, sae=True,
+                  pmksa_caching=True)
+    finally:
+        dev[0].set("sae_groups", "")
+        dev[0].set("sae_pwe", "0")
+
+def test_ap_ft_sae_pmksa_caching_h2e(dev, apdev):
+    """WPA2-FT-SAE AP and PMKSA caching for initial mobility domain association (H2E)"""
+    if "SAE" not in dev[0].get_capability("auth_alg"):
+        raise HwsimSkip("SAE not supported")
+    ssid = "test-ft"
+    passphrase = "12345678"
+
+    params = ft_params1(ssid=ssid, passphrase=passphrase)
+    params['wpa_key_mgmt'] = "FT-SAE"
+    params['sae_pwe'] = "1"
+    hapd0 = hostapd.add_ap(apdev[0], params)
+    params = ft_params2(ssid=ssid, passphrase=passphrase)
+    params['wpa_key_mgmt'] = "FT-SAE"
+    params['sae_pwe'] = "1"
+    hapd = hostapd.add_ap(apdev[1], params)
+    key_mgmt = hapd.get_config()['key_mgmt']
+    if key_mgmt.split(' ')[0] != "FT-SAE":
+        raise Exception("Unexpected GET_CONFIG(key_mgmt): " + key_mgmt)
+
+    try:
+        dev[0].request("SET sae_groups ")
+        dev[0].set("sae_pwe", "1")
+        run_roams(dev[0], apdev, hapd0, hapd, ssid, passphrase, sae=True,
+                  pmksa_caching=True)
+    finally:
+        dev[0].set("sae_groups", "")
+        dev[0].set("sae_pwe", "0")
 
 def generic_ap_ft_eap(dev, apdev, vlan=False, cui=False, over_ds=False,
                       discovery=False, roams=1, wpa_ptk_rekey=0,
@@ -1192,6 +1565,7 @@ def test_ap_ft_eap_pull(dev, apdev):
     generic_ap_ft_eap_pull(dev, apdev)
 
 def test_ap_ft_eap_pull_vlan(dev, apdev):
+    """WPA2-EAP-FT AP (pull PMK) - with VLAN"""
     generic_ap_ft_eap_pull(dev, apdev, vlan=True)
 
 def test_ap_ft_eap_pull_wildcard(dev, apdev):
@@ -1208,6 +1582,10 @@ def test_ap_ft_eap_pull_wildcard(dev, apdev):
     params["r1kh"] = "00:00:00:00:00:00 00:00:00:00:00:00 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
     params["ft_psk_generate_local"] = "1"
     params["eap_server"] = "0"
+    params["rkh_pos_timeout"] = "100"
+    params["rkh_neg_timeout"] = "50"
+    params["rkh_pull_timeout"] = "1234"
+    params["rkh_pull_retries"] = "10"
     params = dict(list(radius.items()) + list(params.items()))
     hapd = hostapd.add_ap(apdev[0], params)
     params = ft_params2(ssid=ssid, passphrase=passphrase, discovery=True)
@@ -1222,6 +1600,91 @@ def test_ap_ft_eap_pull_wildcard(dev, apdev):
     hapd1 = hostapd.add_ap(apdev[1], params)
 
     run_roams(dev[0], apdev, hapd, hapd1, ssid, passphrase, eap=True)
+
+def test_ap_ft_eap_pull_wildcard_multi_bss(dev, apdev, params):
+    """WPA2-EAP-FT AP (pull PMK) - wildcard R0KH/R1KH with multiple BSSs"""
+    bssconf = os.path.join(params['logdir'],
+                           'ap_ft_eap_pull_wildcard_multi_bss.bss.conf')
+    ssid = "test-ft"
+    passphrase = "12345678"
+    radius = hostapd.radius_params()
+
+    params = ft_params1(ssid=ssid, passphrase=passphrase, discovery=True)
+    params['wpa_key_mgmt'] = "WPA-EAP FT-EAP"
+    params["ieee8021x"] = "1"
+    params["pmk_r1_push"] = "0"
+    params["r0kh"] = "ff:ff:ff:ff:ff:ff * 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+    params["r1kh"] = "00:00:00:00:00:00 00:00:00:00:00:00 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+    params["eap_server"] = "0"
+    params = dict(list(radius.items()) + list(params.items()))
+    hapd = hostapd.add_ap(apdev[0], params)
+    ifname2 = apdev[0]['ifname'] + "-2"
+    bssid2 = "02:00:00:00:03:01"
+    params['nas_identifier'] = "nas1b.w1.fi"
+    params['r1_key_holder'] = "000102030415"
+    with open(bssconf, 'w') as f:
+        f.write("driver=nl80211\n")
+        f.write("hw_mode=g\n")
+        f.write("channel=1\n")
+        f.write("ieee80211n=1\n")
+        f.write("interface=%s\n" % ifname2)
+        f.write("bssid=%s\n" % bssid2)
+        f.write("ctrl_interface=/var/run/hostapd\n")
+
+        fields = ["ssid", "wpa_passphrase", "nas_identifier", "wpa_key_mgmt",
+                  "wpa", "rsn_pairwise", "auth_server_addr"]
+        for name in fields:
+            f.write("%s=%s\n" % (name, params[name]))
+        for name, val in params.items():
+            if name in fields:
+                continue
+            f.write("%s=%s\n" % (name, val))
+    hapd2 = hostapd.add_bss(apdev[0], ifname2, bssconf)
+
+    params = ft_params2(ssid=ssid, passphrase=passphrase, discovery=True)
+    params['wpa_key_mgmt'] = "WPA-EAP FT-EAP"
+    params["ieee8021x"] = "1"
+    params["pmk_r1_push"] = "0"
+    params["r0kh"] = "ff:ff:ff:ff:ff:ff * 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+    params["r1kh"] = "00:00:00:00:00:00 00:00:00:00:00:00 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+    params["eap_server"] = "0"
+    params = dict(list(radius.items()) + list(params.items()))
+    hapd1 = hostapd.add_ap(apdev[1], params)
+
+    # The first iteration of the roaming test will use wildcard R0KH discovery
+    # and RRB sequence number synchronization while the second iteration shows
+    # the clean RRB exchange where those extra steps are not needed.
+    for i in range(2):
+        hapd.note("Test iteration %d" % i)
+        dev[0].note("Test iteration %d" % i)
+
+        id = dev[0].connect(ssid, key_mgmt="FT-EAP", eap="GPSK",
+                            identity="gpsk user",
+                            password="abcdefghijklmnop0123456789abcdef",
+                            bssid=bssid2,
+                            scan_freq="2412")
+        res = dev[0].get_status_field("bssid")
+        if res != bssid2:
+            raise Exception("Unexpected BSSID after initial connection: " + res)
+
+        dev[0].scan_for_bss(apdev[1]['bssid'], freq="2412")
+        dev[0].set_network(id, "bssid", "00:00:00:00:00:00")
+        dev[0].roam(apdev[1]['bssid'])
+        res = dev[0].get_status_field("bssid")
+        if res != apdev[1]['bssid']:
+            raise Exception("Unexpected BSSID after first roam: " + res)
+
+        dev[0].scan_for_bss(apdev[0]['bssid'], freq="2412")
+        dev[0].roam(apdev[0]['bssid'])
+        res = dev[0].get_status_field("bssid")
+        if res != apdev[0]['bssid']:
+            raise Exception("Unexpected BSSID after second roam: " + res)
+
+        dev[0].request("REMOVE_NETWORK all")
+        dev[0].wait_disconnected()
+        dev[0].dump_monitor()
+        hapd.dump_monitor()
+        hapd2.dump_monitor()
 
 @remote_compatible
 def test_ap_ft_mismatching_rrb_key_push(dev, apdev):
@@ -1663,7 +2126,7 @@ def test_ap_ft_oom(dev, apdev):
     """WPA2-PSK-FT and OOM"""
     dst = setup_ap_ft_oom(dev, apdev)
     with alloc_fail(dev[0], 1, "wpa_ft_gen_req_ies"):
-        dev[0].roam(dst)
+        dev[0].roam(dst, check_bssid=False, fail_test=True)
 
 def test_ap_ft_oom2(dev, apdev):
     """WPA2-PSK-FT and OOM (2)"""
@@ -1706,7 +2169,7 @@ def test_ap_ft_ap_oom(dev, apdev):
     bssid1 = hapd1.own_addr()
     dev[0].scan_for_bss(bssid1, freq="2412")
     # This roam will fail due to missing PMK-R0 (OOM prevented storing it)
-    dev[0].roam(bssid1)
+    dev[0].roam(bssid1, check_bssid=False)
 
 def test_ap_ft_ap_oom2(dev, apdev):
     """WPA2-PSK-FT and AP OOM 2"""
@@ -1751,15 +2214,15 @@ def test_ap_ft_ap_oom3(dev, apdev):
     dev[0].scan_for_bss(bssid1, freq="2412")
     with alloc_fail(hapd1, 1, "wpa_ft_pull_pmk_r1"):
         # This will fail due to not being able to send out PMK-R1 pull request
-        dev[0].roam(bssid1)
+        dev[0].roam(bssid1, check_bssid=False)
 
     with fail_test(hapd1, 2, "os_get_random;wpa_ft_pull_pmk_r1"):
         # This will fail due to not being able to send out PMK-R1 pull request
-        dev[0].roam(bssid1)
+        dev[0].roam(bssid1, check_bssid=False)
 
     with fail_test(hapd1, 2, "aes_siv_encrypt;wpa_ft_pull_pmk_r1"):
         # This will fail due to not being able to send out PMK-R1 pull request
-        dev[0].roam(bssid1)
+        dev[0].roam(bssid1, check_bssid=False)
 
 def test_ap_ft_ap_oom3b(dev, apdev):
     """WPA2-PSK-FT and AP OOM 3b"""
@@ -1804,7 +2267,7 @@ def test_ap_ft_ap_oom4(dev, apdev):
         if dev[0].get_status_field('bssid') != bssid1:
             raise Exception("Did not roam to AP1")
 
-    with fail_test(hapd0, 1, "wpa_auth_get_seqnum;wpa_ft_gtk_subelem"):
+    with fail_test(hapd0, 1, "i802_get_seqnum;wpa_ft_gtk_subelem"):
         dev[0].roam(bssid0)
         if dev[0].get_status_field('bssid') != bssid0:
             raise Exception("Did not roam to AP0")
@@ -1833,23 +2296,23 @@ def test_ap_ft_ap_oom5(dev, apdev):
     dev[0].scan_for_bss(bssid1, freq="2412")
     with alloc_fail(hapd1, 1, "=wpa_ft_process_auth_req"):
         # This will fail to roam
-        dev[0].roam(bssid1)
+        dev[0].roam(bssid1, check_bssid=False)
 
     with fail_test(hapd1, 1, "os_get_random;wpa_ft_process_auth_req"):
         # This will fail to roam
-        dev[0].roam(bssid1)
+        dev[0].roam(bssid1, check_bssid=False)
 
     with fail_test(hapd1, 1, "sha256_prf_bits;wpa_pmk_r1_to_ptk;wpa_ft_process_auth_req"):
         # This will fail to roam
-        dev[0].roam(bssid1)
+        dev[0].roam(bssid1, check_bssid=False)
 
     with fail_test(hapd1, 3, "wpa_pmk_r1_to_ptk;wpa_ft_process_auth_req"):
         # This will fail to roam
-        dev[0].roam(bssid1)
+        dev[0].roam(bssid1, check_bssid=False)
 
     with fail_test(hapd1, 1, "wpa_derive_pmk_r1_name;wpa_ft_process_auth_req"):
         # This will fail to roam
-        dev[0].roam(bssid1)
+        dev[0].roam(bssid1, check_bssid=False)
 
 def test_ap_ft_ap_oom6(dev, apdev):
     """WPA2-PSK-FT and AP OOM 6"""
@@ -1988,10 +2451,10 @@ def test_ap_ft_ap_oom8(dev, apdev):
     dev[0].scan_for_bss(bssid1, freq="2412")
     with fail_test(hapd1, 1, "wpa_derive_pmk_r0;wpa_ft_psk_pmk_r1"):
         # This will fail to roam
-        dev[0].roam(bssid1)
+        dev[0].roam(bssid1, check_bssid=False)
     with fail_test(hapd1, 1, "wpa_derive_pmk_r1;wpa_ft_psk_pmk_r1"):
         # This will fail to roam
-        dev[0].roam(bssid1)
+        dev[0].roam(bssid1, check_bssid=False)
 
 def test_ap_ft_ap_oom9(dev, apdev):
     """WPA2-PSK-FT and AP OOM 9"""
@@ -2339,20 +2802,6 @@ def test_rsn_ie_proto_ft_psk_sta(dev, apdev):
         raise Exception("Unexpected connection")
     dev[0].request("DISCONNECT")
 
-    logger.info('Unexpected PMKID causing internal hostapd error')
-    hapd.disable()
-    hapd.set('own_ie_override', '30260100000fac040100000fac040100000fac048c000100ffffffffffffffffffffffffffffffff' + '3603a1b201')
-    hapd.enable()
-    dev[0].request("BSS_FLUSH 0")
-    dev[0].scan_for_bss(bssid, 2412, force_scan=True, only_new=True)
-    dev[0].select_network(id, freq=2412)
-    # hostapd fails to generate EAPOL-Key msg 3/4, so this connection cannot
-    # complete.
-    ev = dev[0].wait_event(["CTRL-EVENT-CONNECTED"], timeout=1)
-    if ev is not None:
-        raise Exception("Unexpected connection")
-    dev[0].request("DISCONNECT")
-
 def start_ft(apdev, wpa_ptk_rekey=None):
     ssid = "test-ft"
     passphrase = "12345678"
@@ -2684,7 +3133,8 @@ def test_ap_ft_reassoc_replay(dev, apdev, params):
     sta = dev[0].own_addr()
     filt = "wlan.fc.type == 2 && " + \
            "wlan.da == " + sta + " && " + \
-           "wlan.sa == " + ap
+           "wlan.sa == " + ap + " && " + \
+           "wlan.fc.protected == 1"
     fields = ["wlan.ccmp.extiv"]
     res = run_tshark(capfile, filt, fields)
     vals = res.splitlines()
@@ -2775,6 +3225,10 @@ def test_ap_ft_eap_sha384(dev, apdev):
     params["ieee8021x"] = "1"
     params = dict(list(radius.items()) + list(params.items()))
     hapd0 = hostapd.add_ap(apdev[0], params)
+    conf = hapd0.request("GET_CONFIG")
+    if "key_mgmt=FT-EAP-SHA384" not in conf.splitlines():
+        logger.info("GET_CONFIG:\n" + conf)
+        raise Exception("GET_CONFIG did not report correct key_mgmt")
     params = ft_params2(ssid=ssid, passphrase=passphrase)
     params["ieee80211w"] = "2"
     params['wpa_key_mgmt'] = "FT-EAP-SHA384"
@@ -2903,3 +3357,105 @@ def test_ap_ft_pmksa_caching_sha384(dev, apdev):
 
     run_roams(dev[0], apdev, hapd, hapd1, ssid, None, eap=True,
               eap_identity=identity, pmksa_caching=True, sha384=True)
+
+def test_ap_ft_r1_key_expiration(dev, apdev):
+    """WPA2-PSK-FT and PMK-R1 expiration"""
+    ssid = "test-ft"
+    passphrase = "12345678"
+
+    params = ft_params1(ssid=ssid, passphrase=passphrase)
+    params['r1_max_key_lifetime'] = "2"
+    hapd0 = hostapd.add_ap(apdev[0], params)
+    params = ft_params2(ssid=ssid, passphrase=passphrase)
+    params['r1_max_key_lifetime'] = "2"
+    hapd1 = hostapd.add_ap(apdev[1], params)
+
+    # This succeeds, but results in having to run another PMK-R1 pull before the
+    # second AP can complete FT protocol.
+    run_roams(dev[0], apdev, hapd0, hapd1, ssid, passphrase, wait_before_roam=4)
+
+def test_ap_ft_r0_key_expiration(dev, apdev):
+    """WPA2-PSK-FT and PMK-R0 expiration"""
+    ssid = "test-ft"
+    passphrase = "12345678"
+
+    params = ft_params1(ssid=ssid, passphrase=passphrase)
+    params.pop('r0_key_lifetime', None)
+    params['ft_r0_key_lifetime'] = "2"
+    hapd0 = hostapd.add_ap(apdev[0], params)
+    params = ft_params2(ssid=ssid, passphrase=passphrase)
+    params.pop('r0_key_lifetime', None)
+    params['ft_r0_key_lifetime'] = "2"
+    hapd1 = hostapd.add_ap(apdev[1], params)
+
+    bssid2 = run_roams(dev[0], apdev, hapd0, hapd1, ssid, passphrase,
+                       return_after_initial=True)
+    time.sleep(4)
+    dev[0].scan_for_bss(bssid2, freq="2412")
+    if "OK" not in dev[0].request("ROAM " + bssid2):
+        raise Exception("ROAM failed")
+    ev = dev[0].wait_event(["CTRL-EVENT-CONNECTED",
+                            "CTRL-EVENT-AUTH-REJECT",
+                            "CTRL-EVENT-ASSOC-REJECT"], timeout=5)
+    dev[0].request("DISCONNECT")
+    if ev is None or "CTRL-EVENT-AUTH-REJECT" not in ev:
+        raise Exception("FT protocol failure not reported")
+    if "status_code=53" not in ev:
+        raise Exception("Unexpected status in FT protocol failure: " + ev)
+
+    # Generate a new PMK-R0
+    dev[0].dump_monitor()
+    dev[0].request("RECONNECT")
+    dev[0].wait_connected()
+
+def test_ap_ft_no_full_ap_client_state(dev, apdev):
+    """WPA2-PSK-FT AP with full_ap_client_state=0"""
+    run_ap_ft_skip_prune_assoc(dev, apdev, False, False)
+
+def test_ap_ft_skip_prune_assoc(dev, apdev):
+    """WPA2-PSK-FT AP with skip_prune_assoc"""
+    run_ap_ft_skip_prune_assoc(dev, apdev, True, True)
+
+def test_ap_ft_skip_prune_assoc2(dev, apdev):
+    """WPA2-PSK-FT AP with skip_prune_assoc (disable full_ap_client_state)"""
+    run_ap_ft_skip_prune_assoc(dev, apdev, True, False, test_connectivity=False)
+
+def test_ap_ft_skip_prune_assoc_pmf(dev, apdev):
+    """WPA2-PSK-FT/PMF AP with skip_prune_assoc"""
+    run_ap_ft_skip_prune_assoc(dev, apdev, True, True, pmf=True)
+
+def test_ap_ft_skip_prune_assoc_pmf_over_ds(dev, apdev):
+    """WPA2-PSK-FT/PMF AP with skip_prune_assoc (over DS)"""
+    run_ap_ft_skip_prune_assoc(dev, apdev, True, True, pmf=True, over_ds=True)
+
+def run_ap_ft_skip_prune_assoc(dev, apdev, skip_prune_assoc,
+                               full_ap_client_state, test_connectivity=True,
+                               pmf=False, over_ds=False):
+    ssid = "test-ft"
+    passphrase = "12345678"
+
+    params = ft_params1(ssid=ssid, passphrase=passphrase)
+    if skip_prune_assoc:
+        params['skip_prune_assoc'] = '1'
+    if not full_ap_client_state:
+        params['driver_params'] = "full_ap_client_state=0"
+    if pmf:
+        params["ieee80211w"] = "2"
+    hapd0 = hostapd.add_ap(apdev[0], params)
+    params = ft_params2(ssid=ssid, passphrase=passphrase)
+    if skip_prune_assoc:
+        params['skip_prune_assoc'] = '1'
+    if not full_ap_client_state:
+        params['driver_params'] = "full_ap_client_state=0"
+    if pmf:
+        params["ieee80211w"] = "2"
+    hapd1 = hostapd.add_ap(apdev[1], params)
+
+    run_roams(dev[0], apdev, hapd0, hapd1, ssid, passphrase,
+              ieee80211w="2" if pmf else "0",
+              over_ds=over_ds, test_connectivity=test_connectivity)
+
+def test_ap_ft_sae_skip_prune_assoc(dev, apdev):
+    """WPA2-PSK-FT-SAE AP with skip_prune_assoc"""
+    hapd0, hapd1 = start_ft_sae(dev[0], apdev, skip_prune_assoc=True)
+    run_roams(dev[0], apdev, hapd0, hapd1, "test-ft", "12345678", sae=True)

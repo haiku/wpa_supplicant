@@ -187,6 +187,18 @@ def rename_log(logdir, basename, testname, dev):
         logger.info("Failed to rename log files")
         logger.info(e)
 
+def is_long_duration_test(t):
+    return hasattr(t, "long_duration_test") and t.long_duration_test
+
+def get_test_description(t):
+    if t.__doc__ is None:
+        desc = "MISSING DESCRIPTION"
+    else:
+        desc = t.__doc__
+    if is_long_duration_test(t):
+        desc += " [long]"
+    return desc
+
 def main():
     tests = []
     test_modules = []
@@ -319,13 +331,10 @@ def main():
     if args.update_tests_db:
         for t in tests_to_run:
             name = t.__name__.replace('test_', '', 1)
-            if t.__doc__ is None:
-                print(name + " - MISSING DESCRIPTION")
-            else:
-                print(name + " - " + t.__doc__)
+            print(name + " - " + get_test_description(t))
             if conn:
                 sql = 'INSERT OR REPLACE INTO tests(test,description) VALUES (?, ?)'
-                params = (name, t.__doc__)
+                params = (name, get_test_description(t))
                 try:
                     conn.execute(sql, params)
                 except Exception as e:
@@ -510,11 +519,15 @@ def main():
                     if args.stdin_ctrl:
                         set_term_echo(sys.stdin.fileno(), True)
                     sys.exit(1)
+            skip_reason = None
             try:
+                if is_long_duration_test(t) and not args.long:
+                    raise HwsimSkip("Skip test case with long duration due to --long not specified")
                 if t.__code__.co_argcount > 2:
                     params = {}
                     params['logdir'] = args.logdir
-                    params['long'] = args.long
+                    params['name'] = name
+                    params['prefix'] = os.path.join(args.logdir, name)
                     t(dev, apdev, params)
                 elif t.__code__.co_argcount > 1:
                     t(dev, apdev)
@@ -524,7 +537,9 @@ def main():
                 if check_country_00:
                     for d in dev:
                         country = d.get_driver_status_field("country")
-                        if country != "00":
+                        if country is None:
+                            logger.info(d.ifname + ": Could not fetch country code after the test case run")
+                        elif country != "00":
                             d.dump_monitor()
                             logger.info(d.ifname + ": Country code not reset back to 00: is " + country)
                             print(d.ifname + ": Country code not reset back to 00: is " + country)
@@ -547,6 +562,7 @@ def main():
                             break
             except HwsimSkip as e:
                 logger.info("Skip test case: %s" % e)
+                skip_reason = e
                 result = "SKIP"
             except NameError as e:
                 import traceback
@@ -635,6 +651,8 @@ def main():
         logger.info(result)
         if args.loglevel == logging.WARNING:
             print(result)
+            if skip_reason:
+                print("REASON", skip_reason)
             sys.stdout.flush()
 
         if not reset_ok:

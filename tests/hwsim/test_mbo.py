@@ -203,8 +203,8 @@ def test_mbo_assoc_disallow(dev, apdev, params):
     hapd2 = hostapd.add_ap(apdev[1], {"ssid": "MBO", "mbo": "1"})
 
     logger.debug("Set mbo_assoc_disallow with invalid value")
-    if "FAIL" not in hapd1.request("SET mbo_assoc_disallow 2"):
-        raise Exception("Set mbo_assoc_disallow for AP1 succeeded unexpectedly with value 2")
+    if "FAIL" not in hapd1.request("SET mbo_assoc_disallow 6"):
+        raise Exception("Set mbo_assoc_disallow for AP1 succeeded unexpectedly with value 6")
 
     logger.debug("Disallow associations to AP1 and allow association to AP2")
     if "OK" not in hapd1.request("SET mbo_assoc_disallow 1"):
@@ -321,6 +321,7 @@ def test_mbo_cell_capa_update_pmf(dev, apdev):
 
     dev[0].connect(ssid, psk=passphrase, key_mgmt="WPA-PSK-SHA256",
                    proto="WPA2", ieee80211w="2", scan_freq="2412")
+    hapd.wait_sta()
 
     addr = dev[0].own_addr()
     sta = hapd.get_sta(addr)
@@ -538,6 +539,39 @@ def test_mbo_without_pmf(dev, apdev):
             pass
         else:
             raise
+
+def test_mbo_without_pmf_workaround(dev, apdev):
+    """MBO and WPA2 without PMF on misbehaving AP"""
+    ssid = "test-wnm-mbo"
+    params0 = {'ssid': ssid, "wpa": '2',
+               "wpa_key_mgmt": "WPA-PSK", "rsn_pairwise": "CCMP",
+               "wpa_passphrase": "12345678",
+               "vendor_elements": "dd07506f9a16010100"}
+    params1 = {'ssid': ssid, "mbo": '1', "wpa": '2',
+               "wpa_key_mgmt": "WPA-PSK", "rsn_pairwise": "CCMP",
+               "wpa_passphrase": "12345678", "ieee80211w": "1"}
+    hapd0 = hostapd.add_ap(apdev[0], params0)
+    dev[0].connect(ssid, psk="12345678", key_mgmt="WPA-PSK",
+                   proto="WPA2", ieee80211w="1", scan_freq="2412")
+    hapd0.wait_sta()
+    sta = hapd0.get_sta(dev[0].own_addr())
+    ext_capab = bytearray(binascii.unhexlify(sta['ext_capab']))
+    if ext_capab[2] & 0x08:
+        raise Exception("STA did not disable BSS Transition capability")
+    hapd1 = hostapd.add_ap(apdev[1], params1)
+    dev[0].scan_for_bss(hapd1.own_addr(), 2412, force_scan=True)
+    dev[0].roam(hapd1.own_addr())
+    hapd1.wait_sta()
+    sta = hapd1.get_sta(dev[0].own_addr())
+    ext_capab = bytearray(binascii.unhexlify(sta['ext_capab']))
+    if not ext_capab[2] & 0x08:
+        raise Exception("STA disabled BSS Transition capability")
+    dev[0].roam(hapd0.own_addr())
+    hapd0.wait_sta()
+    sta = hapd0.get_sta(dev[0].own_addr())
+    ext_capab = bytearray(binascii.unhexlify(sta['ext_capab']))
+    if ext_capab[2] & 0x08:
+        raise Exception("STA did not disable BSS Transition capability")
 
 def check_mbo_anqp(dev, bssid, cell_data_conn_pref):
     if "OK" not in dev.request("ANQP_GET " + bssid + " 272,mbo:2"):

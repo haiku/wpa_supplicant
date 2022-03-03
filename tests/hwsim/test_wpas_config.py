@@ -10,6 +10,7 @@ import os
 
 from wpasupplicant import WpaSupplicant
 import hostapd
+from utils import *
 
 config_checks = [("ap_scan", "0"),
                  ("update_config", "1"),
@@ -190,6 +191,11 @@ def test_wpas_config_file(dev, apdev, params):
                 f.write("                    ")
             f.write("foo\n")
             f.write("device_name=name#foo\n")
+            f.write("network={\n")
+            f.write("\tkey_mgmt=NONE\n")
+            f.write('\tssid="hello"\n')
+            f.write('\tgroup=GCMP # "foo"\n')
+            f.write("}\n")
 
         wpas.interface_add("wlan5", config=config)
         capa = {}
@@ -241,9 +247,11 @@ def test_wpas_config_file(dev, apdev, params):
 
         wpas.interface_remove("wlan5")
         data1 = check_config(capa, config)
+        if "group=GCMP" not in data1:
+            raise Exception("Network block group parameter with a comment not present")
 
         wpas.interface_add("wlan5", config=config)
-        if len(wpas.list_networks()) != 1:
+        if len(wpas.list_networks()) != 2:
             raise Exception("Unexpected number of networks")
         if len(wpas.request("LIST_CREDS").splitlines()) != 2:
             raise Exception("Unexpected number of credentials")
@@ -283,6 +291,8 @@ def test_wpas_config_file(dev, apdev, params):
             os.rmdir(config)
         except:
             pass
+        if not wpas.ifname:
+            wpas.interface_add("wlan5")
         wpas.dump_monitor()
         wpas.request("SET country 00")
         wpas.wait_event(["CTRL-EVENT-REGDOM-CHANGE"], timeout=1)
@@ -494,9 +504,9 @@ def test_wpas_config_file_set_global(dev):
                   "pkcs11_module_path", "openssl_ciphers", "pcsc_reader",
                   "pcsc_pin", "driver_param", "manufacturer", "model_name",
                   "model_number", "serial_number", "config_methods",
-	          "p2p_ssid_postfix", "autoscan", "ext_password_backend",
-	          "osu_dir", "wowlan_triggers", "fst_group_id",
-	          "sched_scan_plans", "non_pref_chan"]
+                  "p2p_ssid_postfix", "autoscan", "ext_password_backend",
+                  "osu_dir", "wowlan_triggers", "fst_group_id",
+                  "sched_scan_plans", "non_pref_chan"]
         for field in fields:
             if "FAIL" not in wpas.request('SET %s hello\nmodel_name=foobar' % field):
                 raise Exception("Invalid %s value accepted" % field)
@@ -594,3 +604,60 @@ def test_wpas_config_file_key_mgmt(dev, apdev, params):
 
     wpas.interface_remove("wlan5")
     wpas.interface_add("wlan5", config=config)
+
+def check_network_config(config, network_expected, check=None):
+    with open(config, "r") as f:
+        data = f.read()
+        logger.info("Configuration file contents:\n" + data.rstrip())
+        if network_expected and "network=" not in data:
+            raise Exception("Missing network block in configuration data")
+        if not network_expected and "network=" in data:
+            raise Exception("Unexpected network block in configuration data")
+        if check and check not in data:
+            raise Exception("Missing " + check)
+
+def test_wpas_config_file_sae(dev, apdev, params):
+    """wpa_supplicant config file writing with SAE"""
+    config = os.path.join(params['logdir'], 'wpas_config_file_sae.conf')
+    with open(config, "w") as f:
+        f.write("update_config=1\n")
+    wpas = WpaSupplicant(global_iface='/tmp/wpas-wlan5')
+    wpas.interface_add("wlan5", config=config)
+    check_sae_capab(wpas)
+
+    # Valid SAE configuration with sae_password
+    wpas.connect("test-sae", sae_password="sae-password", key_mgmt="SAE",
+                 only_add_network=True)
+    wpas.save_config()
+    check_network_config(config, True, check="key_mgmt=SAE")
+
+    wpas.request("REMOVE_NETWORK all")
+    wpas.save_config()
+    check_network_config(config, False)
+
+    # Valid SAE configuration with psk
+    wpas.connect("test-sae", psk="sae-password", key_mgmt="SAE",
+                 only_add_network=True)
+    wpas.save_config()
+    check_network_config(config, True, check="key_mgmt=SAE")
+    wpas.request("REMOVE_NETWORK all")
+
+    # Invalid PSK configuration with sae_password
+    wpas.connect("test-psk", sae_password="sae-password", key_mgmt="WPA-PSK",
+                 only_add_network=True)
+    wpas.save_config()
+    check_network_config(config, False)
+
+    # Invalid SAE configuration with raw_psk
+    wpas.connect("test-sae", raw_psk=32*"00", key_mgmt="SAE",
+                 only_add_network=True)
+    wpas.save_config()
+    check_network_config(config, False)
+
+def test_wpas_config_update_without_file(dev, apdev):
+    """wpa_supplicant SAVE_CONFIG without config file"""
+    wpas = WpaSupplicant(global_iface='/tmp/wpas-wlan5')
+    wpas.interface_add("wlan5")
+    wpas.set("update_config", "1")
+    if "FAIL" not in wpas.request("SAVE_CONFIG"):
+        raise Exception("SAVE_CONFIG accepted unexpectedly")

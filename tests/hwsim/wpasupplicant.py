@@ -330,8 +330,10 @@ class WpaSupplicant:
         if not self.ping():
             logger.info("No PING response from " + self.ifname + " after reset")
 
-    def set(self, field, value):
+    def set(self, field, value, allow_fail=False):
         if "OK" not in self.request("SET " + field + " " + value):
+            if allow_fail:
+                return
             raise Exception("Failed to set wpa_supplicant parameter " + field)
 
     def add_network(self):
@@ -595,6 +597,15 @@ class WpaSupplicant:
         except:
             res = self.p2p_dev_addr()
         return res
+
+    def get_addr(self, group=False):
+        dev_addr = self.own_addr()
+        if not group:
+            addr = self.get_status_field('address')
+            if addr:
+                dev_addr = addr
+
+        return dev_addr
 
     def p2p_listen(self):
         return self.global_request("P2P_LISTEN")
@@ -1062,13 +1073,16 @@ class WpaSupplicant:
             self.set_network(id, "ssid", ssid2)
 
         quoted = ["psk", "identity", "anonymous_identity", "password",
+                  "machine_identity", "machine_password",
                   "ca_cert", "client_cert", "private_key",
                   "private_key_passwd", "ca_cert2", "client_cert2",
                   "private_key2", "phase1", "phase2", "domain_suffix_match",
                   "altsubject_match", "subject_match", "pac_file", "dh_file",
                   "bgscan", "ht_mcs", "id_str", "openssl_ciphers",
                   "domain_match", "dpp_connector", "sae_password",
-                  "sae_password_id", "check_cert_subject"]
+                  "sae_password_id", "check_cert_subject",
+                  "machine_ca_cert", "machine_client_cert",
+                  "machine_private_key", "machine_phase2"]
         for field in quoted:
             if field in kwargs and kwargs[field]:
                 self.set_network_quoted(id, field, kwargs[field])
@@ -1078,21 +1092,34 @@ class WpaSupplicant:
                       "wep_tx_keyidx", "scan_freq", "freq_list", "eap",
                       "eapol_flags", "fragment_size", "scan_ssid", "auth_alg",
                       "wpa_ptk_rekey", "disable_ht", "disable_vht", "bssid",
+                      "disable_he",
                       "disable_max_amsdu", "ampdu_factor", "ampdu_density",
                       "disable_ht40", "disable_sgi", "disable_ldpc",
                       "ht40_intolerant", "update_identifier", "mac_addr",
-                      "erp", "bg_scan_period", "bssid_blacklist",
-                      "bssid_whitelist", "mem_only_psk", "eap_workaround",
+                      "erp", "bg_scan_period", "bssid_ignore",
+                      "bssid_accept", "mem_only_psk", "eap_workaround",
                       "engine", "fils_dh_group", "bssid_hint",
                       "dpp_csign", "dpp_csign_expiry",
-                      "dpp_netaccesskey", "dpp_netaccesskey_expiry",
-                      "group_mgmt", "owe_group",
+                      "dpp_netaccesskey", "dpp_netaccesskey_expiry", "dpp_pfs",
+                      "group_mgmt", "owe_group", "owe_only",
+                      "owe_ptk_workaround",
+                      "transition_disable", "sae_pk",
                       "roaming_consortium_selection", "ocv",
                       "multi_ap_backhaul_sta", "rx_stbc", "tx_stbc",
-                      "ft_eap_pmksa_caching"]
+                      "ft_eap_pmksa_caching", "beacon_prot",
+                      "wpa_deny_ptk0_rekey"]
         for field in not_quoted:
             if field in kwargs and kwargs[field]:
                 self.set_network(id, field, kwargs[field])
+
+        known_args = {"raw_psk", "password_hex", "peerkey", "okc", "ocsp",
+                      "only_add_network", "wait_connect"}
+        unknown = set(kwargs.keys())
+        unknown -= set(quoted)
+        unknown -= set(not_quoted)
+        unknown -= known_args
+        if unknown:
+            raise Exception("Unknown WpaSupplicant::connect() arguments: " + str(unknown))
 
         if "raw_psk" in kwargs and kwargs['raw_psk']:
             self.set_network(id, "psk", kwargs['raw_psk'])
@@ -1175,27 +1202,42 @@ class WpaSupplicant:
                                  "CTRL-EVENT-SCAN-RESULTS"], timeout=0.5)
         self.dump_monitor()
 
-    def roam(self, bssid, fail_test=False, assoc_reject_ok=False):
+    def roam(self, bssid, fail_test=False, assoc_reject_ok=False,
+             check_bssid=True):
         self.dump_monitor()
         if "OK" not in self.request("ROAM " + bssid):
             raise Exception("ROAM failed")
         if fail_test:
             if assoc_reject_ok:
                 ev = self.wait_event(["CTRL-EVENT-CONNECTED",
+                                      "CTRL-EVENT-DISCONNECTED",
                                       "CTRL-EVENT-ASSOC-REJECT"], timeout=1)
             else:
-                ev = self.wait_event(["CTRL-EVENT-CONNECTED"], timeout=1)
+                ev = self.wait_event(["CTRL-EVENT-CONNECTED",
+                                      "CTRL-EVENT-DISCONNECTED"], timeout=1)
+            if ev and "CTRL-EVENT-DISCONNECTED" in ev:
+                self.dump_monitor()
+                return
             if ev is not None and "CTRL-EVENT-ASSOC-REJECT" not in ev:
                 raise Exception("Unexpected connection")
             self.dump_monitor()
             return
-        ev = self.wait_event(["CTRL-EVENT-CONNECTED",
-                              "CTRL-EVENT-ASSOC-REJECT"], timeout=10)
+        if assoc_reject_ok:
+            ev = self.wait_event(["CTRL-EVENT-CONNECTED",
+                                  "CTRL-EVENT-DISCONNECTED"], timeout=10)
+        else:
+            ev = self.wait_event(["CTRL-EVENT-CONNECTED",
+                                      "CTRL-EVENT-DISCONNECTED",
+                                  "CTRL-EVENT-ASSOC-REJECT"], timeout=10)
         if ev is None:
             raise Exception("Roaming with the AP timed out")
         if "CTRL-EVENT-ASSOC-REJECT" in ev:
             raise Exception("Roaming association rejected")
+        if "CTRL-EVENT-DISCONNECTED" in ev:
+            raise Exception("Unexpected disconnection when waiting for roam to complete")
         self.dump_monitor()
+        if check_bssid and self.get_status_field('bssid') != bssid:
+            raise Exception("Did not roam to correct BSSID")
 
     def roam_over_ds(self, bssid, fail_test=False):
         self.dump_monitor()
@@ -1292,6 +1334,14 @@ class WpaSupplicant:
             if cache_id != None:
                 vals['cache_id'] = cache_id
             return vals
+        return None
+
+    def get_pmk(self, network_id):
+        bssid = self.get_status_field('bssid')
+        res = self.request("PMKSA_GET %d" % network_id)
+        for val in res.splitlines():
+            if val.startswith(bssid):
+                return val.split(' ')[2]
         return None
 
     def get_sta(self, addr, info=None, next=False):
@@ -1404,6 +1454,10 @@ class WpaSupplicant:
     def note(self, txt):
         self.request("NOTE " + txt)
 
+    def save_config(self):
+        if "OK" not in self.request("SAVE_CONFIG"):
+            raise Exception("Failed to save configuration file")
+
     def wait_regdom(self, country_ie=False):
         for i in range(5):
             ev = self.wait_event(["CTRL-EVENT-REGDOM-CHANGE"], timeout=1)
@@ -1419,6 +1473,12 @@ class WpaSupplicant:
         res = self.request("DPP_QR_CODE " + uri)
         if "FAIL" in res:
             raise Exception("Failed to parse QR Code URI")
+        return int(res)
+
+    def dpp_nfc_uri(self, uri):
+        res = self.request("DPP_NFC_URI " + uri)
+        if "FAIL" in res:
+            raise Exception("Failed to parse NFC URI")
         return int(res)
 
     def dpp_bootstrap_gen(self, type="qrcode", chan=None, mac=None, info=None,
@@ -1441,6 +1501,20 @@ class WpaSupplicant:
             raise Exception("Failed to generate bootstrapping info")
         return int(res)
 
+    def dpp_bootstrap_set(self, id, conf=None, configurator=None, ssid=None,
+                          extra=None):
+        cmd = "DPP_BOOTSTRAP_SET %d" % id
+        if ssid:
+            cmd += " ssid=" + binascii.hexlify(ssid.encode()).decode()
+        if extra:
+            cmd += " " + extra
+        if conf:
+            cmd += " conf=" + conf
+        if configurator is not None:
+            cmd += " configurator=%d" % configurator
+        if "OK" not in self.request(cmd):
+            raise Exception("Failed to set bootstrapping parameters")
+
     def dpp_listen(self, freq, netrole=None, qr=None, role=None):
         cmd = "DPP_LISTEN " + str(freq)
         if netrole:
@@ -1455,10 +1529,15 @@ class WpaSupplicant:
     def dpp_auth_init(self, peer=None, uri=None, conf=None, configurator=None,
                       extra=None, own=None, role=None, neg_freq=None,
                       ssid=None, passphrase=None, expect_fail=False,
-                      tcp_addr=None, tcp_port=None):
+                      tcp_addr=None, tcp_port=None, conn_status=False,
+                      ssid_charset=None, nfc_uri=None, netrole=None,
+                      csrattrs=None):
         cmd = "DPP_AUTH_INIT"
         if peer is None:
-            peer = self.dpp_qr_code(uri)
+            if nfc_uri:
+                peer = self.dpp_nfc_uri(nfc_uri)
+            else:
+                peer = self.dpp_qr_code(uri)
         cmd += " peer=%d" % peer
         if own is not None:
             cmd += " own=%d" % own
@@ -1474,12 +1553,20 @@ class WpaSupplicant:
             cmd += " neg_freq=%d" % neg_freq
         if ssid:
             cmd += " ssid=" + binascii.hexlify(ssid.encode()).decode()
+        if ssid_charset:
+            cmd += " ssid_charset=%d" % ssid_charset
         if passphrase:
             cmd += " pass=" + binascii.hexlify(passphrase.encode()).decode()
         if tcp_addr:
             cmd += " tcp_addr=" + tcp_addr
         if tcp_port:
             cmd += " tcp_port=" + tcp_port
+        if conn_status:
+            cmd += " conn_status=1"
+        if netrole:
+            cmd += " netrole=" + netrole
+        if csrattrs:
+            cmd += " csrattrs=" + csrattrs
         res = self.request(cmd)
         if expect_fail:
             if "FAIL" not in res:
@@ -1487,9 +1574,10 @@ class WpaSupplicant:
             return
         if "OK" not in res:
             raise Exception("Failed to initiate DPP Authentication")
+        return int(peer)
 
     def dpp_pkex_init(self, identifier, code, role=None, key=None, curve=None,
-                      extra=None, use_id=None, allow_fail=False):
+                      extra=None, use_id=None, allow_fail=False, v2=False):
         if use_id is None:
             id1 = self.dpp_bootstrap_gen(type="pkex", key=key, curve=curve)
         else:
@@ -1497,7 +1585,10 @@ class WpaSupplicant:
         cmd = "own=%d " % id1
         if identifier:
             cmd += "identifier=%s " % identifier
-        cmd += "init=1 "
+        if v2:
+            cmd += "init=2 "
+        else:
+            cmd += "init=1 "
         if role:
             cmd += "role=%s " % role
         if extra:
@@ -1541,3 +1632,21 @@ class WpaSupplicant:
         res = self.request("DPP_CONFIGURATOR_REMOVE %d" % conf_id)
         if "OK" not in res:
             raise Exception("DPP_CONFIGURATOR_REMOVE failed")
+
+    def get_ptksa(self, bssid, cipher):
+        res = self.request("PTKSA_CACHE_LIST")
+        lines = res.splitlines()
+        for l in lines:
+            if bssid not in l or cipher not in l:
+                continue
+
+            vals = dict()
+            [index, addr, cipher, expiration, tk, kdk] = l.split(' ', 5)
+            vals['index'] = index
+            vals['addr'] = addr
+            vals['cipher'] = cipher
+            vals['expiration'] = expiration
+            vals['tk'] = tk
+            vals['kdk'] = kdk
+            return vals
+        return None

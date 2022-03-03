@@ -18,7 +18,7 @@ import threading
 import time
 
 import hostapd
-from utils import HwsimSkip, require_under_vm, skip_with_fips, alloc_fail, fail_test, wait_fail_trigger
+from utils import *
 from test_ap_hs20 import build_dhcp_ack
 from test_ap_ft import ft_params1
 
@@ -114,11 +114,16 @@ def test_radius_acct_unreachable2(dev, apdev):
     subprocess.call(['ip', 'ro', 'del', '192.168.213.17', 'dev', 'lo'])
     connect(dev[0], "radius-acct")
     logger.info("Checking for RADIUS retries")
-    time.sleep(4)
-    mib = hapd.get_mib()
-    if "radiusAccClientRetransmissions" not in mib:
-        raise Exception("Missing MIB fields")
-    if int(mib["radiusAccClientRetransmissions"]) < 1 and int(mib["radiusAccClientPendingRequests"]) < 1:
+    found = False
+    for i in range(4):
+        time.sleep(1)
+        mib = hapd.get_mib()
+        if "radiusAccClientRetransmissions" not in mib:
+            raise Exception("Missing MIB fields")
+        if int(mib["radiusAccClientRetransmissions"]) > 0 or \
+           int(mib["radiusAccClientPendingRequests"]) > 0:
+            found = True
+    if not found:
         raise Exception("Missing pending or retransmitted RADIUS Accounting requests")
 
 def test_radius_acct_unreachable3(dev, apdev):
@@ -308,6 +313,20 @@ def test_radius_acct_interim(dev, apdev):
     req_e = int(as_mib_end['radiusAccServTotalRequests'])
     if req_e < req_s + 3:
         raise Exception("Unexpected RADIUS server acct MIB value (req_e=%d req_s=%d)" % (req_e, req_s))
+    # Disable Accounting server and wait for interim update retries to fail and
+    # expire.
+    as_hapd.disable()
+    time.sleep(15)
+    as_hapd.enable()
+    ok = False
+    for i in range(10):
+        time.sleep(1)
+        as_mib = as_hapd.get_mib(param="radius_server")
+        if int(as_mib['radiusAccServTotalRequests']) > 0:
+            ok = True
+            break
+    if not ok:
+        raise Exception("Accounting updates did not seen after server restart")
 
 def test_radius_acct_interim_unreachable(dev, apdev):
     """RADIUS Accounting interim update with unreachable server"""
@@ -437,6 +456,7 @@ def test_radius_acct_ft_psk(dev, apdev):
 
 def test_radius_acct_ieee8021x(dev, apdev):
     """RADIUS Accounting - IEEE 802.1X"""
+    check_wep_capa(dev[0])
     skip_with_fips(dev[0])
     as_hapd = hostapd.Hostapd("as")
     params = hostapd.radius_params()
@@ -754,7 +774,7 @@ def test_radius_das_disconnect(dev, apdev):
 
 def add_message_auth_req(req):
     req.authenticator = req.CreateAuthenticator()
-    hmac_obj = hmac.new(req.secret)
+    hmac_obj = hmac.new(req.secret, digestmod=hashlib.md5)
     hmac_obj.update(struct.pack("B", req.code))
     hmac_obj.update(struct.pack("B", req.id))
 
@@ -956,7 +976,7 @@ def test_radius_macacl_unreachable(dev, apdev):
     hapd.set("auth_server_port", "1812")
     hapd.disable()
     hapd.enable()
-    dev[0].wait_connected()
+    dev[0].wait_connected(timeout=20)
     dev[0].request("DISCONNECT")
     dev[0].wait_disconnected()
 
@@ -1040,7 +1060,7 @@ def test_radius_protocol(dev, apdev):
                     pw = b"incorrect"
                 else:
                     pw = reply.secret
-                hmac_obj = hmac.new(pw)
+                hmac_obj = hmac.new(pw, digestmod=hashlib.md5)
                 hmac_obj.update(struct.pack("B", reply.code))
                 hmac_obj.update(struct.pack("B", reply.id))
 
@@ -1366,6 +1386,13 @@ def test_radius_auth_force_client_addr(dev, apdev):
     hapd = hostapd.add_ap(apdev[0], params)
     connect(dev[0], "radius-auth")
 
+def test_radius_auth_force_client_dev(dev, apdev):
+    """RADIUS client device specified"""
+    params = hostapd.wpa2_eap_params(ssid="radius-auth")
+    params['radius_client_dev'] = "lo"
+    hapd = hostapd.add_ap(apdev[0], params)
+    connect(dev[0], "radius-auth")
+
 @remote_compatible
 def test_radius_auth_force_invalid_client_addr(dev, apdev):
     """RADIUS client address specified and invalid address"""
@@ -1383,7 +1410,7 @@ def test_radius_auth_force_invalid_client_addr(dev, apdev):
 
 def add_message_auth(req):
     req.authenticator = req.CreateAuthenticator()
-    hmac_obj = hmac.new(req.secret)
+    hmac_obj = hmac.new(req.secret, digestmod=hashlib.md5)
     hmac_obj.update(struct.pack("B", req.code))
     hmac_obj.update(struct.pack("B", req.id))
 

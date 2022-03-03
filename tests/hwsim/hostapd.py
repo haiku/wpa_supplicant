@@ -5,10 +5,12 @@
 # See README for more details.
 
 import os
+import re
 import time
 import logging
 import binascii
 import struct
+import tempfile
 import wpaspy
 import remotehost
 import utils
@@ -135,6 +137,9 @@ class HostapdGlobal:
         self.ctrl.terminate()
         self.ctrl = None
 
+    def send_file(self, src, dst):
+        self.host.send_file(src, dst)
+
 class Hostapd:
     def __init__(self, ifname, bssidx=0, hostname=None, port=8877):
         self.hostname = hostname
@@ -179,6 +184,9 @@ class Hostapd:
             self.bssid = self.get_status_field('bssid[%d]' % self.bssidx)
         return self.bssid
 
+    def get_addr(self, group=False):
+        return self.own_addr()
+
     def request(self, cmd):
         logger.debug(self.dbg + ": CTRL: " + cmd)
         return self.ctrl.request(cmd)
@@ -188,6 +196,9 @@ class Hostapd:
 
     def set(self, field, value):
         if "OK" not in self.request("SET " + field + " " + value):
+            if "TKIP" in value and (field == "wpa_pairwise" or \
+                                    field == "rsn_pairwise"):
+                raise utils.HwsimSkip("Cipher TKIP not supported")
             raise Exception("Failed to set hostapd parameter " + field)
 
     def set_defaults(self):
@@ -270,6 +281,18 @@ class Hostapd:
             raise Exception("AP did not report STA connection")
         if addr and addr not in ev:
             raise Exception("Unexpected STA address in connection event: " + ev)
+
+    def wait_ptkinitdone(self, addr, timeout=2):
+        while timeout > 0:
+            sta = self.get_sta(addr)
+            if 'hostapdWPAPTKState' not in sta:
+                raise Exception("GET_STA did not return hostapdWPAPTKState")
+            state = sta['hostapdWPAPTKState']
+            if state == "11":
+                return
+            time.sleep(0.1)
+            timeout -= 0.1
+        raise Exception("Timeout while waiting for PTKINITDONE")
 
     def get_status(self):
         res = self.request("STATUS")
@@ -396,6 +419,12 @@ class Hostapd:
             raise Exception("Failed to parse QR Code URI")
         return int(res)
 
+    def dpp_nfc_uri(self, uri):
+        res = self.request("DPP_NFC_URI " + uri)
+        if "FAIL" in res:
+            raise Exception("Failed to parse NFC URI")
+        return int(res)
+
     def dpp_bootstrap_gen(self, type="qrcode", chan=None, mac=None, info=None,
                           curve=None, key=None):
         cmd = "DPP_BOOTSTRAP_GEN type=" + type
@@ -416,6 +445,20 @@ class Hostapd:
             raise Exception("Failed to generate bootstrapping info")
         return int(res)
 
+    def dpp_bootstrap_set(self, id, conf=None, configurator=None, ssid=None,
+                          extra=None):
+        cmd = "DPP_BOOTSTRAP_SET %d" % id
+        if ssid:
+            cmd += " ssid=" + binascii.hexlify(ssid.encode()).decode()
+        if extra:
+            cmd += " " + extra
+        if conf:
+            cmd += " conf=" + conf
+        if configurator is not None:
+            cmd += " configurator=%d" % configurator
+        if "OK" not in self.request(cmd):
+            raise Exception("Failed to set bootstrapping parameters")
+
     def dpp_listen(self, freq, netrole=None, qr=None, role=None):
         cmd = "DPP_LISTEN " + str(freq)
         if netrole:
@@ -429,10 +472,14 @@ class Hostapd:
 
     def dpp_auth_init(self, peer=None, uri=None, conf=None, configurator=None,
                       extra=None, own=None, role=None, neg_freq=None,
-                      ssid=None, passphrase=None, expect_fail=False):
+                      ssid=None, passphrase=None, expect_fail=False,
+                      conn_status=False, nfc_uri=None):
         cmd = "DPP_AUTH_INIT"
         if peer is None:
-            peer = self.dpp_qr_code(uri)
+            if nfc_uri:
+                peer = self.dpp_nfc_uri(nfc_uri)
+            else:
+                peer = self.dpp_qr_code(uri)
         cmd += " peer=%d" % peer
         if own is not None:
             cmd += " own=%d" % own
@@ -450,6 +497,8 @@ class Hostapd:
             cmd += " ssid=" + binascii.hexlify(ssid.encode()).decode()
         if passphrase:
             cmd += " pass=" + binascii.hexlify(passphrase.encode()).decode()
+        if conn_status:
+            cmd += " conn_status=1"
         res = self.request(cmd)
         if expect_fail:
             if "FAIL" not in res:
@@ -459,7 +508,7 @@ class Hostapd:
             raise Exception("Failed to initiate DPP Authentication")
 
     def dpp_pkex_init(self, identifier, code, role=None, key=None, curve=None,
-                      extra=None, use_id=None):
+                      extra=None, use_id=None, v2=False):
         if use_id is None:
             id1 = self.dpp_bootstrap_gen(type="pkex", key=key, curve=curve)
         else:
@@ -467,7 +516,10 @@ class Hostapd:
         cmd = "own=%d " % id1
         if identifier:
             cmd += "identifier=%s " % identifier
-        cmd += "init=1 "
+        if v2:
+            cmd += "init=2 "
+        else:
+            cmd += "init=1 "
         if role:
             cmd += "role=%s " % role
         if extra:
@@ -509,6 +561,26 @@ class Hostapd:
     def note(self, txt):
         self.request("NOTE " + txt)
 
+    def send_file(self, src, dst):
+        self.host.send_file(src, dst)
+
+    def get_ptksa(self, bssid, cipher):
+        res = self.request("PTKSA_CACHE_LIST")
+        lines = res.splitlines()
+        for l in lines:
+            if bssid not in l or cipher not in l:
+                continue
+            vals = dict()
+            [index, addr, cipher, expiration, tk, kdk] = l.split(' ', 5)
+            vals['index'] = index
+            vals['addr'] = addr
+            vals['cipher'] = cipher
+            vals['expiration'] = expiration
+            vals['tk'] = tk
+            vals['kdk'] = kdk
+            return vals
+        return None
+
 def add_ap(apdev, params, wait_enabled=True, no_enable=False, timeout=30,
            global_ctrl_override=None, driver=False):
         if isinstance(apdev, dict):
@@ -536,7 +608,7 @@ def add_ap(apdev, params, wait_enabled=True, no_enable=False, timeout=30,
             raise Exception("Could not ping hostapd")
         hapd.set_defaults()
         fields = ["ssid", "wpa_passphrase", "nas_identifier", "wpa_key_mgmt",
-                  "wpa",
+                  "wpa", "wpa_deny_ptk0_rekey",
                   "wpa_pairwise", "rsn_pairwise", "auth_server_addr",
                   "acct_server_addr", "osu_server_uri"]
         for field in fields:
@@ -572,6 +644,8 @@ def add_bss(apdev, ifname, confname, ignore_error=False):
         hostname = None
         port = 8878
     hapd_global = HostapdGlobal(apdev)
+    confname = cfg_file(apdev, confname, ifname)
+    hapd_global.send_file(confname, confname)
     hapd_global.add_bss(phy, confname, ignore_error)
     port = hapd_global.get_ctrl_iface_port(ifname)
     hapd = Hostapd(ifname, hostname=hostname, port=port)
@@ -590,6 +664,8 @@ def add_iface(apdev, confname):
         hostname = None
         port = 8878
     hapd_global = HostapdGlobal(apdev)
+    confname = cfg_file(apdev, confname, ifname)
+    hapd_global.send_file(confname, confname)
     hapd_global.add_iface(ifname, confname)
     port = hapd_global.get_ctrl_iface_port(ifname)
     hapd = Hostapd(ifname, hostname=hostname, port=port)
@@ -619,14 +695,17 @@ def terminate(apdev):
     hapd_global = HostapdGlobal(apdev)
     hapd_global.terminate()
 
-def wpa2_params(ssid=None, passphrase=None):
+def wpa2_params(ssid=None, passphrase=None, wpa_key_mgmt="WPA-PSK",
+                ieee80211w=None):
     params = {"wpa": "2",
-              "wpa_key_mgmt": "WPA-PSK",
+              "wpa_key_mgmt": wpa_key_mgmt,
               "rsn_pairwise": "CCMP"}
     if ssid:
         params["ssid"] = ssid
     if passphrase:
         params["wpa_passphrase"] = passphrase
+    if ieee80211w is not None:
+        params["ieee80211w"] = ieee80211w
     return params
 
 def wpa_params(ssid=None, passphrase=None):
@@ -729,3 +808,78 @@ def ht40_minus_params(channel="1", ssid=None, country=None):
 def cmd_execute(apdev, cmd, shell=False):
     hapd_global = HostapdGlobal(apdev)
     return hapd_global.cmd_execute(cmd, shell=shell)
+
+def send_file(apdev, src, dst):
+    hapd_global = HostapdGlobal(apdev)
+    return hapd_global.send_file(src, dst)
+
+def acl_file(dev, apdev, conf):
+    fd, filename = tempfile.mkstemp(dir='/tmp', prefix=conf + '-')
+    f = os.fdopen(fd, 'w')
+
+    if conf == 'hostapd.macaddr':
+        mac0 = dev[0].get_status_field("address")
+        f.write(mac0 + '\n')
+        f.write("02:00:00:00:00:12\n")
+        f.write("02:00:00:00:00:34\n")
+        f.write("-02:00:00:00:00:12\n")
+        f.write("-02:00:00:00:00:34\n")
+        f.write("01:01:01:01:01:01\n")
+        f.write("03:01:01:01:01:03\n")
+    elif conf == 'hostapd.accept':
+        mac0 = dev[0].get_status_field("address")
+        mac1 = dev[1].get_status_field("address")
+        f.write(mac0 + "    1\n")
+        f.write(mac1 + "    2\n")
+    elif conf == 'hostapd.accept2':
+        mac0 = dev[0].get_status_field("address")
+        mac1 = dev[1].get_status_field("address")
+        mac2 = dev[2].get_status_field("address")
+        f.write(mac0 + "    1\n")
+        f.write(mac1 + "    2\n")
+        f.write(mac2 + "    3\n")
+    else:
+        f.close()
+        os.unlink(filename)
+        return conf
+
+    return filename
+
+def bssid_inc(apdev, inc=1):
+    parts = apdev['bssid'].split(':')
+    parts[5] = '%02x' % (int(parts[5], 16) + int(inc))
+    bssid = '%s:%s:%s:%s:%s:%s' % (parts[0], parts[1], parts[2],
+                                   parts[3], parts[4], parts[5])
+    return bssid
+
+def cfg_file(apdev, conf, ifname=None):
+    match = re.search(r'^bss-.+', conf)
+    if match:
+        # put cfg file in /tmp directory
+        fd, fname = tempfile.mkstemp(dir='/tmp', prefix=conf + '-')
+        f = os.fdopen(fd, 'w')
+        idx = ''.join(filter(str.isdigit, conf.split('-')[-1]))
+        if ifname is None:
+            ifname = apdev['ifname']
+            if idx != '1':
+                ifname = ifname + '-' + idx
+
+        f.write("driver=nl80211\n")
+        f.write("ctrl_interface=/var/run/hostapd\n")
+        f.write("hw_mode=g\n")
+        f.write("channel=1\n")
+        f.write("ieee80211n=1\n")
+        if conf.startswith('bss-ht40-'):
+            f.write("ht_capab=[HT40+]\n")
+        f.write("interface=%s\n" % ifname)
+
+        f.write("ssid=bss-%s\n" % idx)
+        if conf == 'bss-2-dup.conf':
+            bssid = apdev['bssid']
+        else:
+            bssid = bssid_inc(apdev, int(idx) - 1)
+        f.write("bssid=%s\n" % bssid)
+
+        return fname
+
+    return conf

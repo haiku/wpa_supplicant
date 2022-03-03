@@ -17,7 +17,7 @@ import hwsim_utils
 from tshark import run_tshark
 from utils import *
 from wpasupplicant import WpaSupplicant
-from test_ap_ht import set_world_reg
+from wlantest import WlantestCapture
 
 @remote_compatible
 def test_ap_open(dev, apdev):
@@ -198,19 +198,15 @@ def test_ap_open_unexpected_assoc_event(dev, apdev):
     dev[0].request("DISCONNECT")
     dev[0].wait_disconnected(timeout=15)
     dev[0].dump_monitor()
-    # This will be accepted due to matching network
+    # This association will be ignored by wpa_supplicant since the current
+    # state is not to try to connect after that DISCONNECT command.
     dev[0].cmd_execute(['iw', 'dev', dev[0].ifname, 'connect', 'open', "2412",
                         apdev[0]['bssid']])
-    dev[0].wait_connected(timeout=15)
+    ev = dev[0].wait_event(["CTRL-EVENT-CONNECTED"], timeout=0.3)
+    dev[0].cmd_execute(['iw', 'dev', dev[0].ifname, 'disconnect'])
     dev[0].dump_monitor()
-
-    dev[0].request("REMOVE_NETWORK all")
-    dev[0].wait_disconnected(timeout=5)
-    dev[0].dump_monitor()
-    # This will result in disconnection due to no matching network
-    dev[0].cmd_execute(['iw', 'dev', dev[0].ifname, 'connect', 'open', "2412",
-                        apdev[0]['bssid']])
-    dev[0].wait_disconnected(timeout=15)
+    if ev is not None:
+        raise Exception("Unexpected connection")
 
 def test_ap_open_external_assoc(dev, apdev):
     """AP with open mode and external association"""
@@ -277,6 +273,7 @@ def hapd_out_of_mem(hapd, apdev, count, func):
 def test_ap_open_out_of_memory(dev, apdev):
     """hostapd failing to setup interface due to allocation failure"""
     hapd = hostapd.add_ap(apdev[0], {"ssid": "open"})
+    flags2 = hapd.request("DRIVER_FLAGS2").splitlines()[1:]
     hapd_out_of_mem(hapd, apdev[1], 1, "hostapd_alloc_bss_data")
 
     for i in range(1, 3):
@@ -292,25 +289,26 @@ def test_ap_open_out_of_memory(dev, apdev):
     for i in range(1, 3):
         hapd_out_of_mem(hapd, apdev[1], i, "=wpa_driver_nl80211_drv_init")
 
-    # eloop_register_read_sock() call from i802_init()
-    hapd_out_of_mem(hapd, apdev[1], 1, "eloop_sock_table_add_sock;?eloop_register_sock;?eloop_register_read_sock;=i802_init")
+    if 'CONTROL_PORT_RX' not in flags2:
+        # eloop_register_read_sock() call from i802_init()
+        hapd_out_of_mem(hapd, apdev[1], 1, "eloop_sock_table_add_sock;?eloop_register_sock;?eloop_register_read_sock;=i802_init")
 
     # verify that a new interface can still be added when memory allocation does
     # not fail
     hostapd.add_ap(apdev[1], {"ssid": "open"})
 
-def test_bssid_black_white_list(dev, apdev):
-    """BSSID black/white list"""
+def test_bssid_ignore_accept(dev, apdev):
+    """BSSID ignore/accept list"""
     hapd = hostapd.add_ap(apdev[0], {"ssid": "open"})
     hapd2 = hostapd.add_ap(apdev[1], {"ssid": "open"})
 
     dev[0].connect("open", key_mgmt="NONE", scan_freq="2412",
-                   bssid_whitelist=apdev[1]['bssid'])
+                   bssid_accept=apdev[1]['bssid'])
     dev[1].connect("open", key_mgmt="NONE", scan_freq="2412",
-                   bssid_blacklist=apdev[1]['bssid'])
+                   bssid_ignore=apdev[1]['bssid'])
     dev[2].connect("open", key_mgmt="NONE", scan_freq="2412",
-                   bssid_whitelist="00:00:00:00:00:00/00:00:00:00:00:00",
-                   bssid_blacklist=apdev[1]['bssid'])
+                   bssid_accept="00:00:00:00:00:00/00:00:00:00:00:00",
+                   bssid_ignore=apdev[1]['bssid'])
     if dev[0].get_status_field('bssid') != apdev[1]['bssid']:
         raise Exception("dev[0] connected to unexpected AP")
     if dev[1].get_status_field('bssid') != apdev[0]['bssid']:
@@ -322,11 +320,11 @@ def test_bssid_black_white_list(dev, apdev):
     dev[2].request("REMOVE_NETWORK all")
 
     dev[2].connect("open", key_mgmt="NONE", scan_freq="2412",
-                   bssid_whitelist="00:00:00:00:00:00", wait_connect=False)
+                   bssid_accept="00:00:00:00:00:00", wait_connect=False)
     dev[0].connect("open", key_mgmt="NONE", scan_freq="2412",
-                   bssid_whitelist="11:22:33:44:55:66/ff:00:00:00:00:00 " + apdev[1]['bssid'] + " aa:bb:cc:dd:ee:ff")
+                   bssid_accept="11:22:33:44:55:66/ff:00:00:00:00:00 " + apdev[1]['bssid'] + " aa:bb:cc:dd:ee:ff")
     dev[1].connect("open", key_mgmt="NONE", scan_freq="2412",
-                   bssid_blacklist="11:22:33:44:55:66/ff:00:00:00:00:00 " + apdev[1]['bssid'] + " aa:bb:cc:dd:ee:ff")
+                   bssid_ignore="11:22:33:44:55:66/ff:00:00:00:00:00 " + apdev[1]['bssid'] + " aa:bb:cc:dd:ee:ff")
     if dev[0].get_status_field('bssid') != apdev[1]['bssid']:
         raise Exception("dev[0] connected to unexpected AP")
     if dev[1].get_status_field('bssid') != apdev[0]['bssid']:
@@ -490,6 +488,85 @@ def test_ap_open_disconnect_in_ps(dev, apdev, params):
         if state != 2:
             raise Exception("Didn't observe TIM bit getting set and unset (state=%d)" % state)
 
+def test_ap_open_sta_ps(dev, apdev):
+    """Station power save operation"""
+    hapd = hostapd.add_ap(apdev[0], {"ssid": "open"})
+    dev[0].connect("open", key_mgmt="NONE", scan_freq="2412",
+                   bg_scan_period="0")
+    hapd.wait_sta()
+
+    time.sleep(0.2)
+    try:
+        dev[0].cmd_execute(['iw', 'dev', dev[0].ifname,
+                            'set', 'power_save', 'on'])
+        run_ap_open_sta_ps(dev, hapd)
+    finally:
+        dev[0].cmd_execute(['iw', 'dev', dev[0].ifname,
+                            'set', 'power_save', 'off'])
+
+def run_ap_open_sta_ps(dev, hapd):
+    hwsim_utils.test_connectivity(dev[0], hapd)
+    # Give time to enter PS
+    time.sleep(0.2)
+
+    phyname = dev[0].get_driver_status_field("phyname")
+    hw_conf = '/sys/kernel/debug/ieee80211/' + phyname + '/hw_conf'
+
+    try:
+        ok = False
+        for i in range(10):
+            with open(hw_conf, 'r') as f:
+                val = int(f.read())
+            if val & 2:
+                ok = True
+                break
+            time.sleep(0.2)
+
+        if not ok:
+            raise Exception("STA did not enter power save")
+
+        dev[0].dump_monitor()
+        hapd.dump_monitor()
+        hapd.request("DEAUTHENTICATE " + dev[0].own_addr())
+        dev[0].wait_disconnected()
+    except FileNotFoundError:
+        raise HwsimSkip("Kernel does not support inspecting HW PS state")
+
+def test_ap_open_ps_mc_buf(dev, apdev, params):
+    """Multicast buffering with a station in power save"""
+    hapd = hostapd.add_ap(apdev[0], {"ssid": "open"})
+    dev[0].connect("open", key_mgmt="NONE", scan_freq="2412",
+                   bg_scan_period="0")
+    hapd.wait_sta()
+
+    buffered_mcast = 0
+    try:
+        dev[0].cmd_execute(['iw', 'dev', dev[0].ifname,
+                            'set', 'power_save', 'on'])
+        # Give time to enter PS
+        time.sleep(0.3)
+
+        for i in range(10):
+            # Verify that multicast frames are released
+            hwsim_utils.run_multicast_connectivity_test(hapd, dev[0])
+
+            # Check frames were buffered until DTIM
+            out = run_tshark(os.path.join(params['logdir'], "hwsim0.pcapng"),
+                             "wlan.fc.type_subtype == 0x0008",
+                             ["wlan.tim.bmapctl.multicast"])
+            for line in out.splitlines():
+                buffered_mcast = int(line)
+                if buffered_mcast == 1:
+                    break
+            if buffered_mcast == 1:
+                break
+    finally:
+        dev[0].cmd_execute(['iw', 'dev', dev[0].ifname,
+                            'set', 'power_save', 'off'])
+
+    if buffered_mcast != 1:
+        raise Exception("AP did not buffer multicast frames")
+
 @remote_compatible
 def test_ap_open_select_network(dev, apdev):
     """Open mode connection and SELECT_NETWORK to change network"""
@@ -505,17 +582,17 @@ def test_ap_open_select_network(dev, apdev):
 
     dev[0].select_network(id1)
     dev[0].wait_connected()
-    res = dev[0].request("BLACKLIST")
+    res = dev[0].request("BSSID_IGNORE")
     if bssid1 in res or bssid2 in res:
-        raise Exception("Unexpected blacklist entry")
+        raise Exception("Unexpected BSSID ignore list entry")
     hwsim_utils.test_connectivity(dev[0], hapd1)
 
     dev[0].select_network(id2)
     dev[0].wait_connected()
     hwsim_utils.test_connectivity(dev[0], hapd2)
-    res = dev[0].request("BLACKLIST")
+    res = dev[0].request("BSSID_IGNORE")
     if bssid1 in res or bssid2 in res:
-        raise Exception("Unexpected blacklist entry(2)")
+        raise Exception("Unexpected BSSID ignore list entry(2)")
 
 @remote_compatible
 def test_ap_open_disable_enable(dev, apdev):
@@ -836,9 +913,9 @@ def test_ap_open_disable_select(dev, apdev):
 
     dev[0].request("DISABLE_NETWORK %d" % id)
     dev[0].wait_disconnected()
-    res = dev[0].request("BLACKLIST")
+    res = dev[0].request("BSSID_IGNORE")
     if hapd1.own_addr() in res or hapd2.own_addr() in res:
-        raise Exception("Unexpected blacklist entry added")
+        raise Exception("Unexpected BSSID ignore list entry added")
     dev[0].request("SELECT_NETWORK %d" % id)
     dev[0].wait_connected()
 
@@ -903,3 +980,38 @@ def test_ap_no_auth_ack(dev, apdev):
         raise Exception("TX status for Deauthentication frame not reported")
     if "ok=0 buf=c0" not in ev:
         raise Exception("Unexpected TX status contents (disconnect): " + ev)
+
+def test_ap_open_layer_2_update(dev, apdev, params):
+    """AP with open mode (no security) and Layer 2 Update frame"""
+    prefix = "ap_open_layer_2_update"
+    ifname = apdev[0]["ifname"]
+    cap = os.path.join(params['logdir'], prefix + "." + ifname + ".pcap")
+
+    hapd = hostapd.add_ap(apdev[0], {"ssid": "open"})
+    wt = WlantestCapture(ifname, cap)
+    time.sleep(1)
+
+    dev[0].connect("open", key_mgmt="NONE", scan_freq="2412")
+    hapd.wait_sta()
+    hwsim_utils.test_connectivity(dev[0], hapd)
+    time.sleep(1)
+    hwsim_utils.test_connectivity(dev[0], hapd)
+    time.sleep(0.5)
+    wt.close()
+
+    # Check for Layer 2 Update frame and unexpected frames from the station
+    # that did not fully complete authentication.
+    res = run_tshark(cap, "basicxid.llc.xid.format == 0x81",
+                     ["eth.src"], wait=False)
+    real_sta_seen = False
+    unexpected_sta_seen = False
+    real_addr = dev[0].own_addr()
+    for l in res.splitlines():
+        if l == real_addr:
+            real_sta_seen = True
+        else:
+            unexpected_sta_seen = True
+    if unexpected_sta_seen:
+        raise Exception("Layer 2 Update frame from unexpected STA seen")
+    if not real_sta_seen:
+        raise Exception("Layer 2 Update frame from real STA not seen")

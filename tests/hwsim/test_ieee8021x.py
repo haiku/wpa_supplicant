@@ -13,13 +13,14 @@ import time
 
 import hostapd
 import hwsim_utils
-from utils import skip_with_fips
+from utils import *
 from tshark import run_tshark
 
 logger = logging.getLogger()
 
 def test_ieee8021x_wep104(dev, apdev):
     """IEEE 802.1X connection using dynamic WEP104"""
+    check_wep_capa(dev[0])
     skip_with_fips(dev[0])
     params = hostapd.radius_params()
     params["ssid"] = "ieee8021x-wep"
@@ -36,6 +37,7 @@ def test_ieee8021x_wep104(dev, apdev):
 
 def test_ieee8021x_wep40(dev, apdev):
     """IEEE 802.1X connection using dynamic WEP40"""
+    check_wep_capa(dev[0])
     skip_with_fips(dev[0])
     params = hostapd.radius_params()
     params["ssid"] = "ieee8021x-wep"
@@ -52,6 +54,7 @@ def test_ieee8021x_wep40(dev, apdev):
 
 def test_ieee8021x_wep_index_workaround(dev, apdev):
     """IEEE 802.1X and EAPOL-Key index workaround"""
+    check_wep_capa(dev[0])
     skip_with_fips(dev[0])
     params = hostapd.radius_params()
     params["ssid"] = "ieee8021x-wep"
@@ -100,6 +103,7 @@ def test_ieee8021x_static_wep104(dev, apdev):
     run_static_wep(dev, apdev, '"hello-there-/"')
 
 def run_static_wep(dev, apdev, key):
+    check_wep_capa(dev[0])
     params = hostapd.radius_params()
     params["ssid"] = "ieee8021x-wep"
     params["ieee8021x"] = "1"
@@ -241,10 +245,27 @@ def test_ieee8021x_held(dev, apdev):
         dev[0].request("SET EAPOL::maxStart 3")
         dev[0].request("SET EAPOL::heldPeriod 60")
 
+def test_ieee8021x_force_unauth(dev, apdev):
+    """IEEE 802.1X and FORCE_UNAUTH state"""
+    params = hostapd.radius_params()
+    params["ssid"] = "ieee8021x-open"
+    params["ieee8021x"] = "1"
+    hapd = hostapd.add_ap(apdev[0], params)
+    bssid = apdev[0]['bssid']
+
+    dev[0].connect("ieee8021x-open", key_mgmt="IEEE8021X", eapol_flags="0",
+                   eap="PSK", identity="psk.user@example.com",
+                   password_hex="0123456789abcdef0123456789abcdef",
+                   scan_freq="2412")
+    dev[0].request("SET EAPOL::portControl ForceUnauthorized")
+    pae = dev[0].get_status_field('Supplicant PAE state')
+    dev[0].wait_disconnected()
+    dev[0].request("SET EAPOL::portControl Auto")
+
 def send_eapol_key(dev, bssid, signkey, frame_start, frame_end):
     zero_sign = "00000000000000000000000000000000"
     frame = frame_start + zero_sign + frame_end
-    hmac_obj = hmac.new(binascii.unhexlify(signkey))
+    hmac_obj = hmac.new(binascii.unhexlify(signkey), digestmod='MD5')
     hmac_obj.update(binascii.unhexlify(frame))
     sign = hmac_obj.digest()
     frame = frame_start + binascii.hexlify(sign).decode() + frame_end
@@ -252,6 +273,7 @@ def send_eapol_key(dev, bssid, signkey, frame_start, frame_end):
 
 def test_ieee8021x_eapol_key(dev, apdev):
     """IEEE 802.1X connection and EAPOL-Key protocol tests"""
+    check_wep_capa(dev[0])
     skip_with_fips(dev[0])
     params = hostapd.radius_params()
     params["ssid"] = "ieee8021x-wep"
@@ -317,6 +339,7 @@ def test_ieee8021x_reauth(dev, apdev):
 
 def test_ieee8021x_reauth_wep(dev, apdev, params):
     """IEEE 802.1X and EAPOL_REAUTH request with WEP"""
+    check_wep_capa(dev[0])
     logdir = params['logdir']
 
     params = hostapd.radius_params()
@@ -492,6 +515,7 @@ def test_ieee8021x_open_leap(dev, apdev):
 
 def test_ieee8021x_and_wpa_enabled(dev, apdev):
     """IEEE 802.1X connection using dynamic WEP104 when WPA enabled"""
+    check_wep_capa(dev[0])
     skip_with_fips(dev[0])
     params = hostapd.radius_params()
     params["ssid"] = "ieee8021x-wep"

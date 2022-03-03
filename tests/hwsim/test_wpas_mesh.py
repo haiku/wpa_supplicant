@@ -16,11 +16,9 @@ import binascii
 import hwsim_utils
 import hostapd
 from wpasupplicant import WpaSupplicant
-from utils import HwsimSkip, alloc_fail, fail_test, wait_fail_trigger
+from utils import *
 from tshark import run_tshark, run_tshark_json
-from test_ap_ht import set_world_reg
-from test_sae import radiotap_build, start_monitor, stop_monitor, \
-    build_sae_commit, sae_rx_commit_token_req
+from test_sae import build_sae_commit, sae_rx_commit_token_req
 from hwsim_utils import set_group_map
 
 def check_mesh_support(dev, secure=False):
@@ -82,8 +80,24 @@ def check_mesh_scan(dev, params, other_started=False, beacon_int=0):
     if '[MESH]' not in bss['flags']:
         raise Exception("BSS output did not include MESH flag")
 
-def check_mesh_group_added(dev):
-    ev = dev.wait_event(["MESH-GROUP-STARTED"])
+def check_dfs_started(dev, timeout=10):
+    ev = dev.wait_event(["DFS-CAC-START"], timeout=timeout)
+    if ev is None:
+        raise Exception("Test exception: CAC did not start")
+
+def check_dfs_finished(dev, timeout=70):
+    ev = dev.wait_event(["DFS-CAC-COMPLETED"], timeout=timeout)
+    if ev is None:
+        raise Exception("Test exception: CAC did not finish")
+
+def check_mesh_radar_handling_finished(dev, timeout=75):
+    ev = dev.wait_event(["CTRL-EVENT-CHANNEL-SWITCH", "MESH-GROUP-STARTED"],
+                        timeout=timeout)
+    if ev is None:
+        raise Exception("Test exception: Couldn't join mesh")
+
+def check_mesh_group_added(dev, timeout=10):
+    ev = dev.wait_event(["MESH-GROUP-STARTED"], timeout=timeout)
     if ev is None:
         raise Exception("Test exception: Couldn't join mesh")
 
@@ -93,6 +107,10 @@ def check_mesh_group_removed(dev):
     if ev is None:
         raise Exception("Test exception: Couldn't leave mesh")
 
+def check_regdom_change(dev, timeout=10):
+    ev = dev.wait_event(["CTRL-EVENT-REGDOM-CHANGE"], timeout=timeout)
+    if ev is None:
+        raise Exception("Test exception: No regdom change happened.")
 
 def check_mesh_peer_connected(dev, timeout=10):
     ev = dev.wait_event(["MESH-PEER-CONNECTED"], timeout=timeout)
@@ -169,6 +187,39 @@ def test_wpas_mesh_group_remove(dev):
     check_mesh_group_removed(dev[0])
     dev[0].mesh_group_remove()
 
+def dfs_simulate_radar(dev):
+    logger.info("Trigger a simulated radar event")
+    phyname = dev.get_driver_status_field("phyname")
+    radar_file = '/sys/kernel/debug/ieee80211/' + phyname + '/hwsim/dfs_simulate_radar'
+    with open(radar_file, 'w') as f:
+        f.write('1')
+
+@long_duration_test
+def test_mesh_peer_connected_dfs(dev):
+    """Mesh peer connected (DFS)"""
+    dev[0].set("country", "DE")
+    dev[1].set("country", "DE")
+
+    check_regdom_change(dev[0])
+    check_regdom_change(dev[1])
+
+    check_mesh_support(dev[0])
+    add_open_mesh_network(dev[0], freq="5500", beacon_int=160)
+    add_open_mesh_network(dev[1], freq="5500", beacon_int=160)
+    check_dfs_started(dev[0])
+    check_dfs_finished(dev[0])
+    check_mesh_joined_connected(dev, timeout0=10)
+
+    dfs_simulate_radar(dev[0])
+
+    check_mesh_radar_handling_finished(dev[0], timeout=75)
+
+    dev[0].set("country", "00")
+    dev[1].set("country", "00")
+
+    check_regdom_change(dev[0])
+    check_regdom_change(dev[1])
+
 def test_wpas_mesh_peer_connected(dev):
     """wpa_supplicant MESH peer connected"""
     check_mesh_support(dev[0])
@@ -218,6 +269,28 @@ def test_wpas_mesh_open(dev, apdev):
     mode = dev[0].get_status_field("mode")
     if mode != "mesh":
         raise Exception("Unexpected mode: " + mode)
+
+    peer = dev[1].own_addr()
+    sta1 = dev[0].get_sta(peer)
+
+    dev[0].scan(freq="2462")
+    bss = dev[0].get_bss(dev[1].own_addr())
+    if bss and 'ie' in bss and "ff0724" in bss['ie']:
+        sta = dev[0].request("STA " + dev[1].own_addr())
+        logger.info("STA info:\n" + sta.rstrip())
+        if "[HE]" not in sta:
+            raise Exception("Missing STA HE flag")
+        if "[VHT]" in sta:
+            raise Exception("Unexpected STA VHT flag")
+
+    time.sleep(1.1)
+    sta2 = dev[0].get_sta(peer)
+    if 'connected_time' not in sta1 or 'connected_time' not in sta2:
+        raise Exception("connected_time not reported for peer")
+    ct1 = int(sta1['connected_time'])
+    ct2 = int(sta2['connected_time'])
+    if ct2 <= ct1:
+        raise Exception("connected_time did not increment")
 
 def test_wpas_mesh_open_no_auto(dev, apdev):
     """wpa_supplicant open MESH network connectivity"""
@@ -285,6 +358,7 @@ def _test_mesh_open_rssi_threshold(dev, apdev, value, expected):
                         ": " + str(mesh_rssi_threshold))
 
 def add_mesh_secure_net(dev, psk=True, pmf=False, pairwise=None, group=None,
+                        group_mgmt=None,
                         sae_password=False, sae_password_id=None, ocv=False):
     id = dev.add_network()
     dev.set_network(id, "mode", "5")
@@ -303,6 +377,8 @@ def add_mesh_secure_net(dev, psk=True, pmf=False, pairwise=None, group=None,
         dev.set_network(id, "pairwise", pairwise)
     if group:
         dev.set_network(id, "group", group)
+    if group_mgmt:
+        dev.set_network(id, "group_mgmt", group_mgmt)
     if ocv:
         try:
             dev.set_network(id, "ocv", "1")
@@ -344,41 +420,6 @@ def test_wpas_mesh_secure_sae_password(dev, apdev):
     dev[1].mesh_group_add(id)
 
     check_mesh_joined_connected(dev, connectivity=True)
-
-def test_wpas_mesh_secure_sae_password_id(dev, apdev):
-    """Secure mesh using sae_password and password identifier"""
-    check_mesh_support(dev[0], secure=True)
-    dev[0].request("SET sae_groups ")
-    id = add_mesh_secure_net(dev[0], psk=False, sae_password=True,
-                             sae_password_id="pw id")
-    dev[0].mesh_group_add(id)
-
-    dev[1].request("SET sae_groups ")
-    id = add_mesh_secure_net(dev[1], sae_password=True,
-                             sae_password_id="pw id")
-    dev[1].mesh_group_add(id)
-
-    check_mesh_joined_connected(dev, connectivity=True)
-
-def test_wpas_mesh_secure_sae_password_id_mismatch(dev, apdev):
-    """Secure mesh using sae_password and password identifier mismatch"""
-    check_mesh_support(dev[0], secure=True)
-    dev[0].request("SET sae_groups ")
-    id = add_mesh_secure_net(dev[0], psk=False, sae_password=True,
-                             sae_password_id="pw id")
-    dev[0].mesh_group_add(id)
-
-    dev[1].request("SET sae_groups ")
-    id = add_mesh_secure_net(dev[1], sae_password=True,
-                             sae_password_id="wrong")
-    dev[1].mesh_group_add(id)
-
-    check_mesh_joined2(dev)
-
-    ev = dev[0].wait_event(["CTRL-EVENT-SAE-UNKNOWN-PASSWORD-IDENTIFIER"],
-                           timeout=10)
-    if ev is None:
-        raise Exception("Unknown Password Identifier not noticed")
 
 def test_mesh_secure_pmf(dev, apdev):
     """Secure mesh network connectivity with PMF enabled"""
@@ -430,7 +471,7 @@ def set_reg(dev, country):
 def clear_reg_setting(dev):
     dev[0].request("MESH_GROUP_REMOVE " + dev[0].ifname)
     dev[1].request("MESH_GROUP_REMOVE " + dev[1].ifname)
-    subprocess.call(['iw', 'reg', 'set', '00'])
+    clear_regdom_dev(dev)
     dev[0].flush_scan_cache()
     dev[1].flush_scan_cache()
 
@@ -485,16 +526,18 @@ def run_mesh_secure_ocv_mix_ht(dev, apdev):
 
     check_mesh_joined_connected(dev, connectivity=True)
 
-def run_mesh_secure(dev, cipher):
+def run_mesh_secure(dev, cipher, pmf=False, group_mgmt=None):
     if cipher not in dev[0].get_capability("pairwise"):
         raise HwsimSkip("Cipher %s not supported" % cipher)
     check_mesh_support(dev[0], secure=True)
     dev[0].request("SET sae_groups ")
-    id = add_mesh_secure_net(dev[0], pairwise=cipher, group=cipher)
+    id = add_mesh_secure_net(dev[0], pairwise=cipher, group=cipher, pmf=pmf,
+                             group_mgmt=group_mgmt)
     dev[0].mesh_group_add(id)
 
     dev[1].request("SET sae_groups ")
-    id = add_mesh_secure_net(dev[1], pairwise=cipher, group=cipher)
+    id = add_mesh_secure_net(dev[1], pairwise=cipher, group=cipher, pmf=pmf,
+                             group_mgmt=group_mgmt)
     dev[1].mesh_group_add(id)
 
     check_mesh_joined_connected(dev, connectivity=True)
@@ -515,9 +558,26 @@ def test_mesh_secure_ccmp_256(dev, apdev):
     """Secure mesh with CCMP-256"""
     run_mesh_secure(dev, "CCMP-256")
 
+def test_mesh_secure_ccmp_cmac(dev, apdev):
+    """Secure mesh with CCMP-128 and BIP-CMAC-128"""
+    run_mesh_secure(dev, "CCMP", pmf=True, group_mgmt="AES-128-CMAC")
+
+def test_mesh_secure_gcmp_gmac(dev, apdev):
+    """Secure mesh with GCMP-128 and BIP-GMAC-128"""
+    run_mesh_secure(dev, "GCMP", pmf=True, group_mgmt="BIP-GMAC-128")
+
+def test_mesh_secure_ccmp_256_cmac_256(dev, apdev):
+    """Secure mesh with CCMP-256 and BIP-CMAC-256"""
+    run_mesh_secure(dev, "CCMP-256", pmf=True, group_mgmt="BIP-CMAC-256")
+
+def test_mesh_secure_gcmp_256_gmac_256(dev, apdev):
+    """Secure mesh with GCMP-256 and BIP-GMAC-256"""
+    run_mesh_secure(dev, "GCMP-256", pmf=True, group_mgmt="BIP-GMAC-256")
+
 def test_mesh_secure_invalid_pairwise_cipher(dev, apdev):
     """Secure mesh and invalid group cipher"""
     check_mesh_support(dev[0], secure=True)
+    skip_without_tkip(dev[0])
     dev[0].request("SET sae_groups ")
     id = add_mesh_secure_net(dev[0], pairwise="TKIP", group="CCMP")
     if dev[0].mesh_group_add(id) != None:
@@ -528,6 +588,7 @@ def test_mesh_secure_invalid_pairwise_cipher(dev, apdev):
 
 def test_mesh_secure_invalid_group_cipher(dev, apdev):
     """Secure mesh and invalid group cipher"""
+    skip_without_tkip(dev[0])
     check_mesh_support(dev[0], secure=True)
     dev[0].request("SET sae_groups ")
     id = add_mesh_secure_net(dev[0], pairwise="CCMP", group="TKIP")
@@ -552,7 +613,7 @@ def test_wpas_mesh_secure_sae_group_mismatch(dev, apdev):
     id = add_mesh_secure_net(dev[1])
     dev[1].mesh_group_add(id)
 
-    dev[2].request("SET sae_groups 26")
+    dev[2].request("SET sae_groups 20")
     id = add_mesh_secure_net(dev[2])
     dev[2].mesh_group_add(id)
 
@@ -595,11 +656,11 @@ def test_wpas_mesh_secure_sae_group_negotiation(dev, apdev):
     addr1 = dev[1].own_addr()
 
     #dev[0].request("SET sae_groups 21 20 25 26")
-    dev[0].request("SET sae_groups 26")
+    dev[0].request("SET sae_groups 25")
     id = add_mesh_secure_net(dev[0])
     dev[0].mesh_group_add(id)
 
-    dev[1].request("SET sae_groups 19 26")
+    dev[1].request("SET sae_groups 19 25")
     id = add_mesh_secure_net(dev[1])
     dev[1].mesh_group_add(id)
 
@@ -877,8 +938,21 @@ def test_wpas_mesh_max_peering(dev, apdev, params):
             out = run_tshark_json(capfile, filt + " && wlan.sa == " + addr)
             pkts = json.loads(out)
             for pkt in pkts:
+                wlan = pkt["_source"]["layers"]["wlan"]
+                if "wlan.tagged.all" not in wlan:
+                    continue
+
+                tagged = wlan["wlan.tagged.all"]
+                if "wlan.tag" not in tagged:
+                    continue
+
+                wlan_tag = tagged["wlan.tag"]
+                if "wlan.mesh.config.ps_protocol_raw" not in wlan_tag:
+                    continue
+
                 frame = pkt["_source"]["layers"]["frame_raw"][0]
-                cap = int(frame[-2:], 16)
+                cap_offset = wlan_tag["wlan.mesh.config.ps_protocol_raw"][1] + 6
+                cap = int(frame[(cap_offset * 2):(cap_offset * 2 + 2)], 16)
                 if cap & 0x01:
                     one[idx] += 1
                 else:
@@ -897,11 +971,7 @@ def test_wpas_mesh_open_5ghz(dev, apdev):
     try:
         _test_wpas_mesh_open_5ghz(dev, apdev)
     finally:
-        dev[0].request("MESH_GROUP_REMOVE " + dev[0].ifname)
-        dev[1].request("MESH_GROUP_REMOVE " + dev[1].ifname)
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev[0].flush_scan_cache()
-        dev[1].flush_scan_cache()
+        clear_reg_setting(dev)
 
 def _test_wpas_mesh_open_5ghz(dev, apdev):
     check_mesh_support(dev[0])
@@ -924,56 +994,6 @@ def _test_wpas_mesh_open_5ghz(dev, apdev):
     dev[0].dump_monitor()
     dev[1].dump_monitor()
 
-def test_wpas_mesh_open_5ghz_coex(dev, apdev):
-    """Mesh network on 5 GHz band and 20/40 coex change"""
-    try:
-        _test_wpas_mesh_open_5ghz_coex(dev, apdev)
-    finally:
-        dev[0].request("MESH_GROUP_REMOVE " + dev[0].ifname)
-        dev[1].request("MESH_GROUP_REMOVE " + dev[1].ifname)
-        set_world_reg(apdev0=apdev[0], dev0=dev[0])
-        dev[0].flush_scan_cache()
-        dev[1].flush_scan_cache()
-
-def _test_wpas_mesh_open_5ghz_coex(dev, apdev):
-    check_mesh_support(dev[0])
-    subprocess.call(['iw', 'reg', 'set', 'US'])
-
-    # Start a 20 MHz BSS on channel 40 that would be the secondary channel of
-    # HT40+ mesh on channel 36.
-    params = {"ssid": "test-ht40",
-              "hw_mode": "a",
-              "channel": "40",
-              "country_code": "US"}
-    hapd = hostapd.add_ap(apdev[0], params)
-    bssid = hapd.own_addr()
-
-    for i in range(2):
-        for j in range(5):
-            ev = dev[i].wait_event(["CTRL-EVENT-REGDOM-CHANGE"], timeout=5)
-            if ev is None:
-                raise Exception("No regdom change event")
-            if "alpha2=US" in ev:
-                break
-        dev[i].scan_for_bss(bssid, freq=5200)
-        add_open_mesh_network(dev[i], freq="5180")
-
-    check_mesh_joined_connected(dev)
-
-    freq = dev[0].get_status_field("freq")
-    if freq != "5200":
-        raise Exception("Unexpected STATUS freq=" + freq)
-    sig = dev[0].request("SIGNAL_POLL").splitlines()
-    if "FREQUENCY=5200" not in sig:
-        raise Exception("Unexpected SIGNAL_POLL output: " + str(sig))
-
-    hapd.disable()
-    dev[0].mesh_group_remove()
-    dev[1].mesh_group_remove()
-    check_mesh_group_removed(dev[0])
-    check_mesh_group_removed(dev[1])
-    dev[0].dump_monitor()
-    dev[1].dump_monitor()
 
 def test_wpas_mesh_open_ht40(dev, apdev):
     """Mesh and HT40 support difference"""
@@ -983,7 +1003,7 @@ def test_wpas_mesh_open_ht40(dev, apdev):
         dev[0].request("MESH_GROUP_REMOVE " + dev[0].ifname)
         dev[1].request("MESH_GROUP_REMOVE " + dev[1].ifname)
         dev[2].request("MESH_GROUP_REMOVE " + dev[2].ifname)
-        subprocess.call(['iw', 'reg', 'set', '00'])
+        clear_regdom_dev(dev)
         dev[0].flush_scan_cache()
         dev[1].flush_scan_cache()
         dev[2].flush_scan_cache()
@@ -1028,11 +1048,7 @@ def test_wpas_mesh_open_vht40(dev, apdev):
     try:
         _test_wpas_mesh_open_vht40(dev, apdev)
     finally:
-        dev[0].request("MESH_GROUP_REMOVE " + dev[0].ifname)
-        dev[1].request("MESH_GROUP_REMOVE " + dev[1].ifname)
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev[0].flush_scan_cache()
-        dev[1].flush_scan_cache()
+        clear_reg_setting(dev)
 
 def _test_wpas_mesh_open_vht40(dev, apdev):
     check_mesh_support(dev[0])
@@ -1060,6 +1076,14 @@ def _test_wpas_mesh_open_vht40(dev, apdev):
     if "CENTER_FRQ1=5190" not in sig:
         raise Exception("Unexpected SIGNAL_POLL value(3b): " + str(sig))
 
+    dev[0].scan(freq="5180")
+    bss = dev[0].get_bss(dev[1].own_addr())
+    if bss and 'ie' in bss and "ff0724" in bss['ie']:
+        sta = dev[0].request("STA " + dev[1].own_addr())
+        logger.info("STA info:\n" + sta.rstrip())
+        if "[HT][VHT][HE]" not in sta:
+            raise Exception("Missing STA flags")
+
     dev[0].mesh_group_remove()
     dev[1].mesh_group_remove()
     check_mesh_group_removed(dev[0])
@@ -1072,11 +1096,7 @@ def test_wpas_mesh_open_vht20(dev, apdev):
     try:
         _test_wpas_mesh_open_vht20(dev, apdev)
     finally:
-        dev[0].request("MESH_GROUP_REMOVE " + dev[0].ifname)
-        dev[1].request("MESH_GROUP_REMOVE " + dev[1].ifname)
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev[0].flush_scan_cache()
-        dev[1].flush_scan_cache()
+        clear_reg_setting(dev)
 
 def _test_wpas_mesh_open_vht20(dev, apdev):
     check_mesh_support(dev[0])
@@ -1116,11 +1136,7 @@ def test_wpas_mesh_open_vht_80p80(dev, apdev):
     try:
         _test_wpas_mesh_open_vht_80p80(dev, apdev)
     finally:
-        dev[0].request("MESH_GROUP_REMOVE " + dev[0].ifname)
-        dev[1].request("MESH_GROUP_REMOVE " + dev[1].ifname)
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev[0].flush_scan_cache()
-        dev[1].flush_scan_cache()
+        clear_reg_setting(dev)
 
 def _test_wpas_mesh_open_vht_80p80(dev, apdev):
     check_mesh_support(dev[0])
@@ -1164,11 +1180,7 @@ def test_mesh_open_vht_160(dev, apdev):
     try:
         _test_mesh_open_vht_160(dev, apdev)
     finally:
-        dev[0].request("MESH_GROUP_REMOVE " + dev[0].ifname)
-        dev[1].request("MESH_GROUP_REMOVE " + dev[1].ifname)
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev[0].flush_scan_cache()
-        dev[1].flush_scan_cache()
+        clear_reg_setting(dev)
 
 def _test_mesh_open_vht_160(dev, apdev):
     check_mesh_support(dev[0])
@@ -1276,10 +1288,9 @@ def test_wpas_mesh_password_mismatch(dev, apdev):
     if count == 0:
         raise Exception("Neither dev0 nor dev1 reported auth failure")
 
-def test_wpas_mesh_password_mismatch_retry(dev, apdev, params):
-    """Mesh password mismatch and retry [long]"""
-    if not params['long']:
-        raise HwsimSkip("Skip test case with long duration due to --long not specified")
+@long_duration_test
+def test_wpas_mesh_password_mismatch_retry(dev, apdev):
+    """Mesh password mismatch and retry"""
     check_mesh_support(dev[0], secure=True)
     dev[0].request("SET sae_groups ")
     id = add_mesh_secure_net(dev[0])
@@ -1422,13 +1433,21 @@ def test_wpas_mesh_gate_forwarding(dev, apdev, p):
     capfile = os.path.join(p['logdir'], "hwsim0.pcapng")
     filt = "wlan.sa==%s && wlan_mgt.fixed.mesh_addr5==%s" % (addr2,
                                                              external_sta)
-    for i in range(15):
+    time.sleep(4)
+    for i in range(5):
         da = run_tshark(capfile, filt, ["wlan.da"])
         if addr0 in da and addr1 in da:
             logger.debug("Frames seen in tshark iteration %d" % i)
             break
-        time.sleep(0.3)
+        time.sleep(0.5)
 
+    if addr0 not in da and addr1 not in da:
+        filt = "wlan.sa==%s" % addr2
+        mesh = run_tshark(capfile, filt, ["wlan.mesh.control_field"])
+        if "1" not in mesh:
+            # Wireshark regression in mesh control field parsing:
+            # https://bugs.wireshark.org/bugzilla/show_bug.cgi?id=15521
+            raise HwsimSkip("tshark bug 15521")
     if addr0 not in da:
         raise Exception("Frame to gate %s not observed" % addr0)
     if addr1 not in da:
@@ -1655,17 +1674,21 @@ def test_wpas_mesh_pmksa_caching_ext(dev, apdev):
 
     dev[1].mesh_group_remove()
     check_mesh_group_removed(dev[1])
+    check_mesh_peer_disconnected(dev[0])
     dev[0].dump_monitor()
     dev[1].dump_monitor()
     res = dev[1].get_pmksa(addr0)
     if res is not None:
         raise Exception("Unexpected PMKSA cache entry remaining")
 
+    time.sleep(0.1)
     if "OK" not in dev[1].request("MESH_PMKSA_ADD " + res2):
         raise Exception("MESH_PMKSA_ADD failed")
     dev[1].mesh_group_add(id)
     check_mesh_group_added(dev[1])
     check_mesh_peer_connected(dev[1])
+    check_mesh_peer_connected(dev[0])
+    time.sleep(0.1)
     dev[0].dump_monitor()
     dev[1].dump_monitor()
     pmksa1b = dev[1].get_pmksa(addr0)
@@ -1804,7 +1827,7 @@ def test_mesh_sae_groups_invalid(dev, apdev):
     """Mesh with invalid SAE group configuration"""
     check_mesh_support(dev[0], secure=True)
 
-    dev[0].request("SET sae_groups 26")
+    dev[0].request("SET sae_groups 25")
     id = add_mesh_secure_net(dev[0])
     dev[0].mesh_group_add(id)
 
