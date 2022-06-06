@@ -23,6 +23,7 @@
 #include <ObjectList.h>
 #include <String.h>
 
+#include <private/shared/AutoDeleter.h>
 #include <net_notifications.h>
 
 #include "WirelessConfigDialog.h"
@@ -438,8 +439,6 @@ WPASupplicantApp::_JoinNetwork(BMessage *message)
 
 		interface = wpa_supplicant_add_iface(fWPAGlobal, &interfaceOptions,
 			NULL);
-		if (interface == NULL)
-			return B_NO_MEMORY;
 	} else {
 		// Disable everything
 		wpa_supplicant_disable_network(interface, NULL);
@@ -453,6 +452,16 @@ WPASupplicantApp::_JoinNetwork(BMessage *message)
 			wpas_notify_network_removed(interface, network);
 			wpa_config_remove_network(interface->conf, network->id);
 		}
+	}
+
+	wpa_config* conf;
+	CObjectDeleter<wpa_config, void, wpa_config_free> confDeleter;
+	if (interface != NULL) {
+		conf = interface->conf;
+	} else {
+		// We can continue without an interface and will try HAIKU_JOIN instead.
+		conf = wpa_config_alloc_empty(NULL, NULL);
+		confDeleter.SetTo(conf);
 	}
 
 	const char *networkName = NULL;
@@ -472,11 +481,12 @@ WPASupplicantApp::_JoinNetwork(BMessage *message)
 			return status;
 	}
 
-	wpa_ssid *network = wpa_config_add_network(interface->conf);
+	wpa_ssid *network = wpa_config_add_network(conf);
 	if (network == NULL)
 		return B_NO_MEMORY;
 
-	wpas_notify_network_added(interface, network);
+	if (interface != NULL)
+		wpas_notify_network_added(interface, network);
 	network->disabled = 1;
 	wpa_config_set_network_defaults(network);
 
@@ -540,16 +550,60 @@ WPASupplicantApp::_JoinNetwork(BMessage *message)
 	}
 
 	if (result != 0) {
-		wpas_notify_network_removed(interface, network);
-		wpa_config_remove_network(interface->conf, network->id);
+		if (interface != NULL)
+			wpas_notify_network_removed(interface, network);
+		wpa_config_remove_network(conf, network->id);
 		return B_ERROR;
 	}
 
-	// Set up watching for the completion event
-	_StartWatchingInterfaceChanges(interface, _InterfaceStateChangeCallback,
-		message);
+	if (interface != NULL) {
+		// Set up watching for the completion event
+		_StartWatchingInterfaceChanges(interface, _InterfaceStateChangeCallback, message);
+	}
 
-	// Now attempt to connect
+	if (interface == NULL) {
+		// Attempt to connect using the Haiku extension ioctl
+#ifndef IEEE80211_IOC_HAIKU_JOIN
+#define IEEE80211_IOC_HAIKU_JOIN				0x6002
+struct ieee80211_haiku_join_req {
+	uint8 i_nwid[IEEE80211_NWID_LEN];
+	uint8 i_nwid_len;
+
+	uint32 i_authentication_mode;
+	uint32 i_ciphers;
+	uint32 i_group_ciphers;
+	uint32 i_key_mode;
+
+	uint32 i_key_len;
+	uint8 i_key[];
+};
+#endif
+		const size_t joinReqLen = sizeof(struct ieee80211_haiku_join_req) + PMK_LEN;
+		struct ieee80211_haiku_join_req* joinReq =
+			(struct ieee80211_haiku_join_req*)alloca(joinReqLen);
+		joinReq->i_nwid_len = strlen(networkName);
+		memcpy(joinReq->i_nwid, networkName, joinReq->i_nwid_len);
+		joinReq->i_authentication_mode = authMode;
+		joinReq->i_ciphers = 0;
+		joinReq->i_group_ciphers = 0;
+		joinReq->i_key_mode = 0;
+
+		if (authMode >= B_NETWORK_AUTHENTICATION_WPA) {
+			joinReq->i_key_len = PMK_LEN;
+			memcpy(joinReq->i_key, network->psk, PMK_LEN);
+		}
+
+		BNetworkDevice device(interfaceName);
+		struct ieee80211req request;
+		request.i_type = IEEE80211_IOC_HAIKU_JOIN;
+		request.i_data = joinReq;
+		request.i_len = joinReqLen;
+		result = device.Control(SIOCS80211, &request);
+		printf("wpa_gui-haiku: used HAIKU_JOIN to join, status: %d\n", result);
+		return result;
+	}
+
+	// Otheriwse, use wpa_supplicant to connect.
 	wpa_supplicant_select_network(interface, network);
 
 	// Use a message runner to return a timeout and stop watching after a while
@@ -576,8 +630,20 @@ WPASupplicantApp::_LeaveNetwork(BMessage *message)
 
 	wpa_supplicant *interface = wpa_supplicant_get_iface(fWPAGlobal,
 		interfaceName);
-	if (interface == NULL)
-		return B_ENTRY_NOT_FOUND;
+	if (interface == NULL) {
+		// Attempt to leave directly.
+		BNetworkDevice device(interfaceName);
+		struct ieee80211req_mlme mlmeRequest;
+		mlmeRequest.im_op = IEEE80211_MLME_DEAUTH;
+		mlmeRequest.im_reason = IEEE80211_REASON_AUTH_LEAVE;
+		struct ieee80211req request;
+		request.i_type = IEEE80211_IOC_MLME;
+		request.i_data = &mlmeRequest;
+		request.i_len = sizeof(mlmeRequest);
+		status = device.Control(SIOCS80211, &request);
+		printf("wpa_gui-haiku: used to MLME to leave, status: %d\n", status);
+		return status;
+	}
 
 	if (wpa_supplicant_remove_iface(fWPAGlobal, interface, 0) != 0)
 		return B_ERROR;
