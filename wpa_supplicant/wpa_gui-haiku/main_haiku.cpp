@@ -556,10 +556,8 @@ WPASupplicantApp::_JoinNetwork(BMessage *message)
 		return B_ERROR;
 	}
 
-	if (interface != NULL) {
-		// Set up watching for the completion event
-		_StartWatchingInterfaceChanges(interface, _InterfaceStateChangeCallback, message);
-	}
+	// Set up watching for the completion event
+	_StartWatchingInterfaceChanges(interface, _InterfaceStateChangeCallback, message);
 
 	if (interface == NULL) {
 		// Attempt to connect using the Haiku extension ioctl
@@ -600,11 +598,13 @@ struct ieee80211_haiku_join_req {
 		request.i_len = joinReqLen;
 		result = device.Control(SIOCS80211, &request);
 		printf("wpa_gui-haiku: used HAIKU_JOIN to join, status: %d\n", result);
-		return result;
-	}
 
-	// Otheriwse, use wpa_supplicant to connect.
-	wpa_supplicant_select_network(interface, network);
+		if (result != B_OK)
+			return result;
+	} else {
+		// Otherwise, use wpa_supplicant to connect.
+		wpa_supplicant_select_network(interface, network);
+	}
 
 	// Use a message runner to return a timeout and stop watching after a while
 	BMessage timeout(kMsgJoinTimeout);
@@ -671,7 +671,17 @@ WPASupplicantApp::_NotifyNetworkEvent(BMessage *message)
 	if (result != B_OK)
 		return result;
 
-	callback(context, interfaceName.String(), message->FindInt32("opcode"));
+	const int32 opcode = message->FindInt32("opcode");
+	callback(context, interfaceName.String(), opcode);
+
+	if (wpa_supplicant_get_iface(fWPAGlobal, interfaceName) == NULL) {
+		// We likely joined via the HAIKU_JOIN ioctl. Generate a fake event.
+		if (opcode == B_NETWORK_WLAN_JOINED)
+			wpa_supplicant_haiku_notify_state_change(NULL, WPA_COMPLETED, WPA_AUTHENTICATING);
+		else if (opcode == B_NETWORK_WLAN_LEFT)
+			wpa_supplicant_haiku_notify_state_change(NULL, WPA_DISCONNECTED, WPA_AUTHENTICATING);
+	}
+
 	return B_OK;
 }
 
@@ -685,14 +695,29 @@ WPASupplicantApp::_SuccessfullyJoined(const wpa_supplicant *interface,
 	if (!joinRequest.FindBool("persistent"))
 		return;
 
-	wpa_ssid *networkConfig = interface->current_ssid;
-	if (networkConfig == NULL)
-		return;
-
 	wireless_network network;
 	memset(network.name, 0, sizeof(network.name));
-	memcpy(network.name, networkConfig->ssid,
-		min_c(sizeof(network.name), networkConfig->ssid_len));
+
+	if (interface != NULL) {
+		wpa_ssid *networkConfig = interface->current_ssid;
+		if (networkConfig == NULL)
+			return;
+
+		memcpy(network.name, networkConfig->ssid,
+			min_c(sizeof(network.name), networkConfig->ssid_len));
+	} else {
+		const char *interfaceName = NULL;
+		status_t status = joinRequest.FindString("device", &interfaceName);
+		if (status != B_OK)
+			return;
+
+		BNetworkDevice device(interfaceName);
+		struct ieee80211req request;
+		request.i_type = IEEE80211_IOC_SSID;
+		request.i_data = network.name;
+		request.i_len = sizeof(network.name);
+		device.Control(SIOCG80211, &request);
+	}
 
 	//network.address.SetToLinkLevel((uint8 *)interface->bssid, ETH_ALEN);
 		// TODO: Decide if we want to do this, it limits the network to
@@ -719,6 +744,9 @@ WPASupplicantApp::_SuccessfullyJoined(const wpa_supplicant *interface,
 		keyStore.AddKeyring(kWPASupplicantKeyring);
 		keyStore.AddKey(kWPASupplicantKeyring, key);
 	}
+
+	if (interface == NULL)
+		return;
 
 	switch (interface->pairwise_cipher) {
 		case WPA_CIPHER_NONE:
