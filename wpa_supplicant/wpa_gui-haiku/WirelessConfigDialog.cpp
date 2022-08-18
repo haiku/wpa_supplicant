@@ -178,7 +178,7 @@ public:
 		if (fAuthWEP->IsMarked())
 			authMode = B_NETWORK_AUTHENTICATION_WEP;
 		else if (fAuthWPA->IsMarked())
-			authMode = B_NETWORK_AUTHENTICATION_WPA;
+			authMode = B_NETWORK_AUTHENTICATION_WPA2;
 
 		message.RemoveName("authentication");
 		message.AddUInt32("authentication", authMode);
