@@ -127,7 +127,7 @@ static void l2_packet_receive(int sock, void *eloop_ctx, void *sock_ctx)
 	ssize_t bytesReceived;
 	u8 buffer[2300];
 
-	bytesReceived = recvfrom(l2->rx_fd, buffer, sizeof(buffer), MSG_TRUNC,
+	bytesReceived = recvfrom(l2->rx_fd, buffer, sizeof(buffer), 0,
 				 (struct sockaddr*)&from, &fromLength);
 
 	if (bytesReceived <= 0)
