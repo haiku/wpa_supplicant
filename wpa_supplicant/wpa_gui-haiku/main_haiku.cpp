@@ -474,6 +474,19 @@ WPASupplicantApp::_JoinNetwork(BMessage *message)
 	if (status != B_OK)
 		return status;
 
+
+	const char *username = NULL;
+	uint32 encapsulationMode = B_NETWORK_EAP_ENCAPSULATION_NONE;
+	if (authMode == B_NETWORK_AUTHENTICATION_EAP) {
+		status = message->FindUInt32("encapsulation", &encapsulationMode);
+		if (status != B_OK)
+			return status;
+			
+		status = message->FindString("username", &username);
+		if (status != B_OK)
+			return status;
+	}
+
 	const char *password = NULL;
 	if (authMode > B_NETWORK_AUTHENTICATION_NONE) {
 		status = message->FindString("password", &password);
@@ -502,12 +515,25 @@ WPASupplicantApp::_JoinNetwork(BMessage *message)
 	if (result == 0)
 		result = wpa_config_set(network, "scan_ssid", "1", 1);
 
-	if (authMode >= B_NETWORK_AUTHENTICATION_WPA) {
-		// Nothing to do here.
-	} else {
-		// Open or WEP.
-		if (result == 0)
-			result = wpa_config_set(network, "key_mgmt", "NONE", 6);
+	if (result == 0) {
+		if (authMode == B_NETWORK_AUTHENTICATION_WPA || authMode == B_NETWORK_AUTHENTICATION_WPA2) {
+			result = wpa_config_set(network, "key_mgmt", "WPA-PSK", 3);
+		} else if (authMode == B_NETWORK_AUTHENTICATION_EAP) {
+			result = wpa_config_set(network, "key_mgmt", "WPA-EAP", 3);
+		} else {
+			// B_NETWORK_AUTHENTICATION_NONE
+			// B_NETWORK_AUTHENTICATION_WEP
+			// Open or WEP.
+			result = wpa_config_set(network, "key_mgmt", "NONE", 3);
+		}
+	}
+
+	if (result == 0) {
+		if (encapsulationMode == B_NETWORK_EAP_ENCAPSULATION_PEAP)
+			result = wpa_config_set(network, "eap", "PEAP", 6);
+			
+		if (encapsulationMode == B_NETWORK_EAP_ENCAPSULATION_TLS)
+			result = wpa_config_set(network, "eap", "TLS", 6);
 	}
 
 	if (result == 0) {
@@ -525,7 +551,8 @@ WPASupplicantApp::_JoinNetwork(BMessage *message)
 
 			if (result == 0)
 				result = wpa_config_set(network, "wep_tx_keyidx", "0", 9);
-		} else if (authMode >= B_NETWORK_AUTHENTICATION_WPA) {
+		} else if (authMode == B_NETWORK_AUTHENTICATION_WPA 
+			|| authMode == B_NETWORK_AUTHENTICATION_WPA2) {
 			// WPA/WPA2
 			value = "\"";
 			value += password;
@@ -535,6 +562,18 @@ WPASupplicantApp::_JoinNetwork(BMessage *message)
 			if (result == 0) {
 				// We need to actually "apply" the PSK
 				wpa_config_update_psk(network);
+			}
+		} else if (authMode == B_NETWORK_AUTHENTICATION_EAP) {
+			value = "\"";
+			value += password;
+			value += "\"";
+			result = wpa_config_set(network, "password", value.String(), 10);
+			
+			if (encapsulationMode != B_NETWORK_EAP_ENCAPSULATION_NONE) {
+				value = "\"";
+				value += username;
+				value += "\"";
+				result = wpa_config_set(network, "identity", value.String(), 11);
 			}
 		}
 

@@ -44,6 +44,7 @@ public:
 	WirelessConfigView()
 		:
 		BView("WirelessConfigView", B_WILL_DRAW),
+		fUsername(NULL),
 		fPassword(NULL)
 	{
 		fErrorLabel = new BStringView("error label", NULL);
@@ -78,6 +79,8 @@ public:
 		authMenu->AddItem(fAuthWEP);
 		fAuthWPA = new(std::nothrow) BMenuItem(B_TRANSLATE("WPA/WPA2"), NULL);
 		authMenu->AddItem(fAuthWPA);
+		fAuthEAP = new(std::nothrow) BMenuItem("WPA/WPA2 Enterprise", NULL);
+		authMenu->AddItem(fAuthEAP);
 
 		BMenuField* authMenuField = new(std::nothrow) BMenuField(
 			B_TRANSLATE("Authentication:"), authMenu);
@@ -87,19 +90,27 @@ public:
 		layout->AddItem(authMenuField->CreateLabelLayoutItem(), 0, row);
 		layout->AddItem(authMenuField->CreateMenuBarLayoutItem(), 1, row++);
 
-		fPassword = new(std::nothrow) BTextControl(B_TRANSLATE("Password:"),
-			"", NULL);
+		fUsername = new(std::nothrow) BTextControl(B_TRANSLATE("Username:"), "", NULL);
+		if (fUsername == NULL)
+			return;
+
+
+		BLayoutItem* usernameItem = fUsername->CreateTextViewLayoutItem();
+		layout->AddItem(fUsername->CreateLabelLayoutItem(), 0, row);
+		fUsername->SetEnabled(false);
+		layout->AddItem(usernameItem, 1, row++);
+		fPassword = new(std::nothrow) BTextControl(B_TRANSLATE("Password:"), "", NULL);
 		if (fPassword == NULL)
 			return;
 
-		fPassword->TextView()->HideTyping(true);
+		//fPassword->TextView()->HideTyping(true);
 
-		BLayoutItem* layoutItem = fPassword->CreateTextViewLayoutItem();
-		layoutItem->SetExplicitMinSize(BSize((285 / 12) * be_plain_font->Size(),
+		BLayoutItem* passwordItem = fPassword->CreateTextViewLayoutItem();
+		passwordItem->SetExplicitMinSize(BSize((285 / 12) * be_plain_font->Size(),
 			B_SIZE_UNSET));
 
 		layout->AddItem(fPassword->CreateLabelLayoutItem(), 0, row);
-		layout->AddItem(layoutItem, 1, row++);
+		layout->AddItem(passwordItem, 1, row++);
 
 		fPersist = new(std::nothrow) BCheckBox(B_TRANSLATE("Store this configuration"));
 		layout->AddItem(BSpaceLayoutItem::CreateGlue(), 0, row);
@@ -152,14 +163,30 @@ public:
 		switch (authMode) {
 			default:
 			case B_NETWORK_AUTHENTICATION_NONE:
+				//fUsername->SetEnabled(false);
 				fAuthOpen->SetMarked(true);
+				fUsername->SetEnabled(false);
+				fPassword->SetEnabled(false);
 				break;
 			case B_NETWORK_AUTHENTICATION_WEP:
+				//fUsername->SetEnabled(false);
 				fAuthWEP->SetMarked(true);
+				fUsername->SetEnabled(false);
+				fPassword->SetEnabled(true);
 				break;
 			case B_NETWORK_AUTHENTICATION_WPA:
 			case B_NETWORK_AUTHENTICATION_WPA2:
+				fUsername->SetEnabled(false);
+				fPassword->SetEnabled(true);
 				fAuthWPA->SetMarked(true);
+				break;
+			case B_NETWORK_AUTHENTICATION_EAP:
+				fUsername->SetEnabled(true);
+				fPassword->SetEnabled(true);
+				fAuthEAP->SetMarked(true);
+				BString username;
+				if (message.FindString("username", &username) == B_OK)
+					fUsername->SetText(username);
 				break;
 		}
 
@@ -196,6 +223,8 @@ private:
 	BMenuItem* fAuthOpen;
 	BMenuItem* fAuthWEP;
 	BMenuItem* fAuthWPA;
+	BMenuItem* fAuthEAP;
+	BTextControl* fUsername;
 	BTextControl* fPassword;
 	BCheckBox* fPersist;
 	BButton* fCancelButton;
