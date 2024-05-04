@@ -37,6 +37,7 @@
 
 static const uint32 kMessageCancel = 'btcl';
 static const uint32 kMessageOk = 'btok';
+static const uint32 kMessageShowPass = 'btsh';
 
 
 class WirelessConfigView : public BView {
@@ -65,16 +66,15 @@ public:
 
 		int32 row = 0;
 		layout->AddItem(fNetworkName->CreateLabelLayoutItem(), 0, row);
-		layout->AddItem(fNetworkName->CreateTextViewLayoutItem(), 1, row++);
+		layout->AddItem(fNetworkName->CreateTextViewLayoutItem(), 1, row++, 2, 1);
 
 		BPopUpMenu* authMenu = new(std::nothrow) BPopUpMenu("authMode");
 		if (authMenu == NULL)
 			return;
 
-		fAuthOpen = new(std::nothrow) BMenuItem(
-			B_TRANSLATE_COMMENT("Open", "Open network"), NULL);
+		fAuthOpen = new(std::nothrow) BMenuItem(B_TRANSLATE("Open ‒ no encryption"), NULL);
 		authMenu->AddItem(fAuthOpen);
-		fAuthWEP = new(std::nothrow) BMenuItem(B_TRANSLATE("WEP"), NULL);
+		fAuthWEP = new(std::nothrow) BMenuItem(B_TRANSLATE("WEP ‒ insecure encryption"), NULL);
 		authMenu->AddItem(fAuthWEP);
 		fAuthWPA = new(std::nothrow) BMenuItem(B_TRANSLATE("WPA/WPA2"), NULL);
 		authMenu->AddItem(fAuthWPA);
@@ -85,7 +85,7 @@ public:
 			return;
 
 		layout->AddItem(authMenuField->CreateLabelLayoutItem(), 0, row);
-		layout->AddItem(authMenuField->CreateMenuBarLayoutItem(), 1, row++);
+		layout->AddItem(authMenuField->CreateMenuBarLayoutItem(), 1, row++, 2, 1);
 
 		fPassword = new(std::nothrow) BTextControl(B_TRANSLATE("Password:"),
 			"", NULL);
@@ -99,7 +99,14 @@ public:
 			B_SIZE_UNSET));
 
 		layout->AddItem(fPassword->CreateLabelLayoutItem(), 0, row);
-		layout->AddItem(layoutItem, 1, row++);
+		layout->AddItem(layoutItem, 1, row);
+
+		fShowPassButton = new(std::nothrow) BButton("👁", new BMessage(kMessageShowPass));
+		fShowPassButton->SetToolTip(B_TRANSLATE("Show password"));
+		fShowPassButton->SetBehavior(BButton::B_TOGGLE_BEHAVIOR);
+		const float height = fPassword->Bounds().Height();
+		fShowPassButton->SetExplicitSize(BSize(height, height));
+		layout->AddView(fShowPassButton, 2, row++);
 
 		fPersist = new(std::nothrow) BCheckBox(B_TRANSLATE("Store this configuration"));
 		layout->AddItem(BSpaceLayoutItem::CreateGlue(), 0, row);
@@ -126,10 +133,33 @@ public:
 	virtual void
 	AttachedToWindow()
 	{
+		fShowPassButton->SetTarget(this);
 		fCancelButton->SetTarget(Window());
 		fOkButton->SetTarget(Window());
 		fOkButton->MakeDefault(true);
 		fPassword->MakeFocus(true);
+	}
+
+	virtual void
+	MessageReceived(BMessage* message)
+	{
+		switch (message->what) {
+			case kMessageShowPass:
+				bool state = fShowPassButton->Value() == B_CONTROL_OFF;
+
+				BString temp(fPassword->Text()); // HideTyping() will clear the text
+				fPassword->TextView()->HideTyping(state);
+				fPassword->SetText(temp);
+				temp = "";
+
+				if (state)
+					fShowPassButton->SetToolTip(B_TRANSLATE("Show password"));
+				else
+					fShowPassButton->SetToolTip(B_TRANSLATE("Hide password"));
+				return;
+		}
+
+		BView::MessageReceived(message);
 	}
 
 	void
@@ -200,6 +230,7 @@ private:
 	BCheckBox* fPersist;
 	BButton* fCancelButton;
 	BButton* fOkButton;
+	BButton* fShowPassButton;
 };
 
 
