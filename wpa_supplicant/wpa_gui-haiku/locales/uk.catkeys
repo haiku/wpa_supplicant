@@ -1,13 +1,15 @@
-1	Ukrainian	application/x-vnd.malinen-wpa_supplicant	4272080571
-Cancel	wpa_supplicant		Скасувати
-Password:	wpa_supplicant		Пароль:
-Open	wpa_supplicant	Open network	Відкрити
-Store this configuration	wpa_supplicant		Зберегти цю конфігурацію
-WEP	wpa_supplicant		WEP
-Connect to a WiFi network	wpa_supplicant		Підключитися до мережі WiFi
-Network name:	wpa_supplicant		Назва мережі:
+1	Ukrainian	application/x-vnd.malinen-wpa_supplicant	2596284191
 Authentication:	wpa_supplicant		Автентифікація:
-WPA/WPA2	wpa_supplicant		WPA/WPA2
+Cancel	wpa_supplicant		Скасувати
+Connect to a WiFi network	wpa_supplicant		Підключитися до мережі WiFi
+Failed to join network. (Incorrect password?)	wpa_supplicant		Неможливо приєднатися до мережі. (Неправильний пароль?)
+Hide password	wpa_supplicant		Hide password
+Network name:	wpa_supplicant		Назва мережі:
 OK	wpa_supplicant		OK
-Failed to join network. (Incorrect password?)	wpa_supplicant		Failed to join network. (Incorrect password?)
-Password format invalid!	wpa_supplicant		Password format invalid!
+Open ‒ no encryption	wpa_supplicant		Open ‒ no encryption
+Password format invalid!	wpa_supplicant		Недійсний формат пароля!
+Password:	wpa_supplicant		Пароль:
+Show password	wpa_supplicant		Show password
+Store this configuration	wpa_supplicant		Зберегти цю конфігурацію
+WEP ‒ insecure encryption	wpa_supplicant		WEP ‒ insecure encryption
+WPA/WPA2	wpa_supplicant		WPA/WPA2

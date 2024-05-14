@@ -1,0 +1,15 @@
+1	Korean	application/x-vnd.malinen-wpa_supplicant	2596284191
+Authentication:	wpa_supplicant		인증:
+Cancel	wpa_supplicant		취소
+Connect to a WiFi network	wpa_supplicant		WiFI 네트워크에 연결되었습니다
+Failed to join network. (Incorrect password?)	wpa_supplicant		네트워크에 접속할 수 없습니다 (잘못된 비밀번호)
+Hide password	wpa_supplicant		비밀번호 숨기기
+Network name:	wpa_supplicant		네트워크 이름:
+OK	wpa_supplicant		확인
+Open ‒ no encryption	wpa_supplicant		암호화 없음
+Password format invalid!	wpa_supplicant		비밀번호 형식이 잘못되었습니다!
+Password:	wpa_supplicant		비밀번호:
+Show password	wpa_supplicant		비밀번호 보이기
+Store this configuration	wpa_supplicant		설정 저장하기
+WEP ‒ insecure encryption	wpa_supplicant		WEP - 낮은 암호화
+WPA/WPA2	wpa_supplicant		WPA/WPA2

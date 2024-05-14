@@ -1,0 +1,15 @@
+1	Norwegian	application/x-vnd.malinen-wpa_supplicant	2596284191
+Authentication:	wpa_supplicant		Autentisering:
+Cancel	wpa_supplicant		Avbryt
+Connect to a WiFi network	wpa_supplicant		Koble til et WiFi nettverk
+Failed to join network. (Incorrect password?)	wpa_supplicant		Kunne ikke koble til nettverket. (Feil passord?)
+Hide password	wpa_supplicant		Skjul passord
+Network name:	wpa_supplicant		Nettverksnavn:
+OK	wpa_supplicant		OK
+Open ‒ no encryption	wpa_supplicant		Åpent - ingen kryptering
+Password format invalid!	wpa_supplicant		Ugyldig passordformat!
+Password:	wpa_supplicant		Passord:
+Show password	wpa_supplicant		Vis passord
+Store this configuration	wpa_supplicant		Lagre disse innstillingene
+WEP ‒ insecure encryption	wpa_supplicant		WEP - usikker kryptering
+WPA/WPA2	wpa_supplicant		WPA/WPA2

@@ -1,0 +1,15 @@
+1	Finnish	application/x-vnd.malinen-wpa_supplicant	2596284191
+Authentication:	wpa_supplicant		Authentication:
+Cancel	wpa_supplicant		Peru
+Connect to a WiFi network	wpa_supplicant		Yhdistä WIFI-verkkoon
+Failed to join network. (Incorrect password?)	wpa_supplicant		Yhdistäminen epäonnistui. (Tarkista salasana?)
+Hide password	wpa_supplicant		Piilota salasana
+Network name:	wpa_supplicant		Verkon nimi:
+OK	wpa_supplicant		OK
+Open ‒ no encryption	wpa_supplicant		Avoin - ei salausta
+Password format invalid!	wpa_supplicant		Password format invalid!
+Password:	wpa_supplicant		Salasana:
+Show password	wpa_supplicant		Näytä salasana
+Store this configuration	wpa_supplicant		Store this configuration
+WEP ‒ insecure encryption	wpa_supplicant		WEP ‒ insecure encryption
+WPA/WPA2	wpa_supplicant		WPA/WPA2

@@ -1,0 +1,15 @@
+1	Danish	application/x-vnd.malinen-wpa_supplicant	2596284191
+Authentication:	wpa_supplicant		Godkendelse:
+Cancel	wpa_supplicant		Afbryd
+Connect to a WiFi network	wpa_supplicant		Forbind til et trådløst netværk
+Failed to join network. (Incorrect password?)	wpa_supplicant		Fejl i netværksforbindelse. (Forkert kodeord?)
+Hide password	wpa_supplicant		Hide password
+Network name:	wpa_supplicant		Netværksnavn:
+OK	wpa_supplicant		O.k.
+Open ‒ no encryption	wpa_supplicant		Open ‒ no encryption
+Password format invalid!	wpa_supplicant		Ugyldigt kodeordsformat!
+Password:	wpa_supplicant		Kodeord:
+Show password	wpa_supplicant		Show password
+Store this configuration	wpa_supplicant		Gem denne opsætning
+WEP ‒ insecure encryption	wpa_supplicant		WEP ‒ insecure encryption
+WPA/WPA2	wpa_supplicant		WPA/WPA2

@@ -1,0 +1,15 @@
+1	Chinese (simplified)	application/x-vnd.malinen-wpa_supplicant	2596284191
+Authentication:	wpa_supplicant		认证模式:
+Cancel	wpa_supplicant		取消
+Connect to a WiFi network	wpa_supplicant		连接到 WiFi 网络
+Failed to join network. (Incorrect password?)	wpa_supplicant		加入网络失败。（密码错误？）
+Hide password	wpa_supplicant		隐藏密码
+Network name:	wpa_supplicant		网络名称：
+OK	wpa_supplicant		确定
+Open ‒ no encryption	wpa_supplicant		开放 ‒ 不加密
+Password format invalid!	wpa_supplicant		密码格式不正确！
+Password:	wpa_supplicant		密码：
+Show password	wpa_supplicant		显示密码
+Store this configuration	wpa_supplicant		保存此配置
+WEP ‒ insecure encryption	wpa_supplicant		WEP ‒ 不安全加密
+WPA/WPA2	wpa_supplicant		WPA/WPA2

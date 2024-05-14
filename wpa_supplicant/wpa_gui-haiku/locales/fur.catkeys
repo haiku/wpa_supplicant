@@ -1,13 +1,15 @@
-1	Friulian	application/x-vnd.malinen-wpa_supplicant	4272080571
+1	Friulian	application/x-vnd.malinen-wpa_supplicant	2596284191
 Authentication:	wpa_supplicant		Autenticazion:
 Cancel	wpa_supplicant		Anule
 Connect to a WiFi network	wpa_supplicant		Conet a une rêt WiFi
 Failed to join network. (Incorrect password?)	wpa_supplicant		No si è rivâts a unîsi ae rêt. (Peraule di ordin sbaliade?)
+Hide password	wpa_supplicant		Plate password
 Network name:	wpa_supplicant		Non de rêt:
 OK	wpa_supplicant		Va ben
-Open	wpa_supplicant	Open network	Vierç
+Open ‒ no encryption	wpa_supplicant		Vierte ‒ cence cifradure
 Password format invalid!	wpa_supplicant		Formât de peraule di ordin no valit!
 Password:	wpa_supplicant		Peraule di ordin:
+Show password	wpa_supplicant		Mostre password
 Store this configuration	wpa_supplicant		Memorize cheste configurazion
-WEP	wpa_supplicant		WEP
+WEP ‒ insecure encryption	wpa_supplicant		WEP ‒ cifradure no sigure
 WPA/WPA2	wpa_supplicant		WPA/WPA2

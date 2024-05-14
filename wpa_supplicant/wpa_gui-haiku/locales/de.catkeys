@@ -1,13 +1,15 @@
-1	German	application/x-vnd.malinen-wpa_supplicant	4272080571
+1	German	application/x-vnd.malinen-wpa_supplicant	2596284191
 Authentication:	wpa_supplicant		Verschlüsselung:
 Cancel	wpa_supplicant		Abbrechen
 Connect to a WiFi network	wpa_supplicant		Mit Funknetzwerk verbinden
 Failed to join network. (Incorrect password?)	wpa_supplicant		Verbindung zum Netzwerk fehlgeschlagen (falsches Kennwort?)
+Hide password	wpa_supplicant		Kennwort verbergen
 Network name:	wpa_supplicant		Netzwerkname:
 OK	wpa_supplicant		OK
-Open	wpa_supplicant	Open network	keine
+Open ‒ no encryption	wpa_supplicant		Offen - keine Verschlüsselung
 Password format invalid!	wpa_supplicant		Kennwortformat ungültig!
 Password:	wpa_supplicant		Kennwort:
+Show password	wpa_supplicant		Kennwort zeigen
 Store this configuration	wpa_supplicant		Konfiguration speichern
-WEP	wpa_supplicant		WEP
+WEP ‒ insecure encryption	wpa_supplicant		WEP ‒ unsichere Verschlüsselung
 WPA/WPA2	wpa_supplicant		WPA/WPA2
