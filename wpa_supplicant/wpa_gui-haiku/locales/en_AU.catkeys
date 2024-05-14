@@ -1,11 +1,11 @@
-1	English (British)	application/x-vnd.malinen-wpa_supplicant	2596284191
+1	English (Australian)	application/x-vnd.malinen-wpa_supplicant	2596284191
 Authentication:	wpa_supplicant		Authentication:
 Cancel	wpa_supplicant		Cancel
 Connect to a WiFi network	wpa_supplicant		Connect to a WiFi network
 Failed to join network. (Incorrect password?)	wpa_supplicant		Failed to join network. (Incorrect password?)
 Hide password	wpa_supplicant		Hide password
 Network name:	wpa_supplicant		Network name:
-OK	wpa_supplicant		Alright
+OK	wpa_supplicant		OK
 Open ‒ no encryption	wpa_supplicant		Open ‒ no encryption
 Password format invalid!	wpa_supplicant		Password format invalid!
 Password:	wpa_supplicant		Password:

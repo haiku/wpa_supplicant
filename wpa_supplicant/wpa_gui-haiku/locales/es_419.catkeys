@@ -1,0 +1,15 @@
+1	Spanish (Latin American)	application/x-vnd.malinen-wpa_supplicant	2596284191
+Authentication:	wpa_supplicant		Autenticación:
+Cancel	wpa_supplicant		Cancelar
+Connect to a WiFi network	wpa_supplicant		Conectar a red WiFi
+Failed to join network. (Incorrect password?)	wpa_supplicant		Error al conectar a esta red. (¿Contraseña incorrecta?)
+Hide password	wpa_supplicant		Ocultar contraseña
+Network name:	wpa_supplicant		Nombre de red:
+OK	wpa_supplicant		Aceptar
+Open ‒ no encryption	wpa_supplicant		Abierto - sin cifrado
+Password format invalid!	wpa_supplicant		¡Formato de contraseña no válido!
+Password:	wpa_supplicant		Contraseña:
+Show password	wpa_supplicant		Mostrar contraseña
+Store this configuration	wpa_supplicant		Guardar esta configuración
+WEP ‒ insecure encryption	wpa_supplicant		WEP ‒ cifrado inseguro
+WPA/WPA2	wpa_supplicant		WPA/WPA2

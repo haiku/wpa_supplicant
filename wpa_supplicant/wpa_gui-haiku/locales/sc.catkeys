@@ -1,0 +1,15 @@
+1	Sardinian	application/x-vnd.malinen-wpa_supplicant	2596284191
+Authentication:	wpa_supplicant		Averiguadura:
+Cancel	wpa_supplicant		Annudda
+Connect to a WiFi network	wpa_supplicant		Acroba a una retza chena filos
+Failed to join network. (Incorrect password?)	wpa_supplicant		No est possìbile acrobare a sa retza (una faddina in sa clae?)
+Hide password	wpa_supplicant		Hide password
+Network name:	wpa_supplicant		Nùmene de sa retza:
+OK	wpa_supplicant		Deghet
+Open ‒ no encryption	wpa_supplicant		Open ‒ no encryption
+Password format invalid!	wpa_supplicant		Su formadu de sa crae non est bàlidu!
+Password:	wpa_supplicant		Crae de atzessu:
+Show password	wpa_supplicant		Show password
+Store this configuration	wpa_supplicant		Alloga custu cuncordu
+WEP ‒ insecure encryption	wpa_supplicant		WEP ‒ insecure encryption
+WPA/WPA2	wpa_supplicant		WPA/WPA2
