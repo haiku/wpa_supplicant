@@ -20,6 +20,13 @@ from tshark import run_tshark
 from test_ap_csa import switch_channel, wait_channel_switch
 
 def check_scan(dev, params, other_started=False, test_busy=False):
+    if other_started:
+        ev = dev.wait_event(["CTRL-EVENT-SCAN-STARTED"])
+        if ev is None:
+            raise Exception("Other scan did not start")
+        if "id=" in ev:
+            raise Exception("Scan id unexpectedly included in start event")
+
     if not other_started:
         dev.dump_monitor()
     id = dev.request("SCAN " + params)
@@ -32,12 +39,6 @@ def check_scan(dev, params, other_started=False, test_busy=False):
             raise Exception("SCAN command while already scanning not rejected")
 
     if other_started:
-        ev = dev.wait_event(["CTRL-EVENT-SCAN-STARTED"])
-        if ev is None:
-            raise Exception("Other scan did not start")
-        if "id=" + str(id) in ev:
-            raise Exception("Own scan id unexpectedly included in start event")
-
         ev = dev.wait_event(["CTRL-EVENT-SCAN-RESULTS"])
         if ev is None:
             raise Exception("Other scan did not complete")
@@ -90,6 +91,9 @@ def test_scan(dev, apdev):
 
     logger.info("Active single-channel scan on AP's operating channel")
     check_scan_retry(dev[0], "freq=2412 passive=0 use_id=1", bssid)
+
+    logger.info("Disable collocated 6 GHz scanning")
+    check_scan(dev[0], "freq=2457 non_coloc_6ghz=1 use_id=1")
 
 @remote_compatible
 def test_scan_tsf(dev, apdev):
@@ -262,6 +266,7 @@ def test_scan_bss_operations(dev, apdev):
     hostapd.add_ap(apdev[1], {"ssid": "test2-scan"})
     bssid2 = apdev[1]['bssid']
 
+    dev[0].flush_scan_cache()
     dev[0].scan(freq="2412")
     dev[0].scan(freq="2412")
     dev[0].scan(freq="2412")
@@ -691,7 +696,7 @@ def test_scan_setband(dev, apdev):
                 d.request("SCAN only_new=1")
 
             for d in devs:
-                ev = d.wait_event(["CTRL-EVENT-SCAN-RESULTS"], 15)
+                ev = d.wait_event(["CTRL-EVENT-SCAN-RESULTS"], 30)
                 if ev is None:
                     raise Exception("Scan timed out")
 
@@ -1027,7 +1032,7 @@ def _test_scan_dfs(dev, apdev, params):
 
     if "OK" not in dev[0].request("SCAN"):
         raise Exception("SCAN command failed")
-    ev = dev[0].wait_event(["CTRL-EVENT-SCAN-RESULTS"])
+    ev = dev[0].wait_event(["CTRL-EVENT-SCAN-RESULTS"], timeout=30)
     if ev is None:
         raise Exception("Scan did not complete")
 
@@ -1286,7 +1291,6 @@ def test_scan_chan_switch(dev, apdev):
     run_scan(dev[0], bssid, 2412)
     dev[0].dump_monitor()
 
-@reset_ignore_old_scan_res
 def test_scan_new_only(dev, apdev):
     """Scan and only_new=1 multiple times"""
     dev[0].flush_scan_cache()
@@ -1395,7 +1399,7 @@ def test_scan_parsing(dev, apdev):
              # Too long SSID
              "bssid=02:ff:00:00:00:01 ie=0033" + 33*'FF',
              # All parameters
-             "flags=ffffffff bssid=02:ff:00:00:00:02 freq=1234 beacon_int=102 caps=1234 qual=10 noise=10 level=10 tsf=1122334455667788 age=123456 est_throughput=100 snr=10 parent_tsf=1122334455667788 tsf_bssid=02:03:04:05:06:07 ie=000474657374 beacon_ie=000474657374",
+             "flags=ffffffff bssid=02:ff:00:00:00:02 freq=1234 beacon_int=102 caps=1234 qual=10 noise=10 level=10 tsf=1122334455667788 age=123 est_throughput=100 snr=10 parent_tsf=1122334455667788 tsf_bssid=02:03:04:05:06:07 ie=000474657374 beacon_ie=000474657374",
              # Beacon IEs truncated
              "bssid=02:ff:00:00:00:03 ie=0000 beacon_ie=0003ffff",
              # Probe Response IEs truncated

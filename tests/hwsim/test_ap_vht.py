@@ -18,6 +18,7 @@ from test_dfs import wait_dfs_event
 
 def test_ap_vht80(dev, apdev):
     """VHT with 80 MHz channel width"""
+    clear_scan_cache(apdev[0])
     try:
         hapd = None
         params = {"ssid": "vht",
@@ -82,6 +83,7 @@ def test_ap_vht80(dev, apdev):
 
 def test_ap_vht_wifi_generation(dev, apdev):
     """VHT and wifi_generation"""
+    clear_scan_cache(apdev[0])
     try:
         hapd = None
         params = {"ssid": "vht",
@@ -163,8 +165,37 @@ def test_ap_vht80d(dev, apdev):
     """VHT with 80 MHz channel width (HT40- channel 48)"""
     vht80_test(apdev[0], dev, 48, "[HT40-]")
 
+def test_ap_vht80e(dev, apdev):
+    """VHT with 80 MHz channel width (HT40- channel 161)"""
+    clear_scan_cache(apdev[0])
+    try:
+        hapd = None
+        params = {"ssid": "vht",
+                  "country_code": "US",
+                  "hw_mode": "a",
+                  "channel": "161",
+                  "ht_capab": "[HT40-]",
+                  "ieee80211n": "1",
+                  "ieee80211ac": "1",
+                  "vht_oper_chwidth": "1",
+                  "vht_oper_centr_freq_seg0_idx": "155"}
+        hapd = hostapd.add_ap(apdev[0], params)
+        bssid = apdev[0]['bssid']
+
+        dev[0].connect("vht", key_mgmt="NONE",
+                       scan_freq=str(5000 + 5 * 161))
+        hwsim_utils.test_connectivity(dev[0], hapd)
+    except Exception as e:
+        if isinstance(e, Exception) and str(e) == "AP startup failed":
+            if not vht_supported():
+                raise HwsimSkip("80 MHz channel not supported in regulatory information")
+        raise
+    finally:
+        clear_regdom(hapd, dev)
+
 def test_ap_vht80_params(dev, apdev):
     """VHT with 80 MHz channel width and number of optional features enabled"""
+    clear_scan_cache(apdev[0])
     try:
         hapd = None
         params = {"ssid": "vht",
@@ -301,6 +332,7 @@ def test_ap_vht_40(devs, apdevs):
     """VHT and 40 MHz channel"""
     dev = devs[0]
     ap = apdevs[0]
+    clear_scan_cache(ap)
     try:
         hapd = None
         params = {"ssid": "test-vht40",
@@ -315,6 +347,7 @@ def test_ap_vht_40(devs, apdevs):
                   "vht_oper_centr_freq_seg0_idx": "0"}
         hapd = hostapd.add_ap(ap, params)
         dev.connect("test-vht40", scan_freq="5180", key_mgmt="NONE")
+        time.sleep(0.1)
         hwsim_utils.test_connectivity(dev, hapd)
 
         sta = hapd.get_sta(dev.own_addr())
@@ -354,6 +387,7 @@ def test_ap_vht_capab_not_supported(dev, apdev):
 
 def test_ap_vht160(dev, apdev):
     """VHT with 160 MHz channel width (1)"""
+    clear_scan_cache(apdev[0])
     try:
         hapd = None
         params = {"ssid": "vht",
@@ -1077,6 +1111,7 @@ def test_ap_vht_on_24ghz_2(dev, apdev):
 
 def test_prefer_vht40(dev, apdev):
     """Preference on VHT40 over HT40"""
+    clear_scan_cache(apdev[0])
     try:
         hapd = None
         hapd2 = None
@@ -1124,6 +1159,7 @@ def test_prefer_vht40(dev, apdev):
 
 def test_ap_vht80_pwr_constraint(dev, apdev):
     """VHT with 80 MHz channel width and local power constraint"""
+    clear_scan_cache(apdev[0])
     hapd = None
     try:
         params = {"ssid": "vht",
@@ -1156,6 +1192,7 @@ def test_ap_vht80_pwr_constraint(dev, apdev):
 
 def test_ap_vht_use_sta_nsts(dev, apdev):
     """VHT with 80 MHz channel width and use_sta_nsts=1"""
+    clear_scan_cache(apdev[0])
     try:
         hapd = None
         params = {"ssid": "vht",
@@ -1184,6 +1221,7 @@ def test_ap_vht_use_sta_nsts(dev, apdev):
 def test_ap_vht_tkip(dev, apdev):
     """VHT and TKIP"""
     skip_without_tkip(dev[0])
+    clear_scan_cache(apdev[0])
     try:
         hapd = None
         params = {"ssid": "vht",

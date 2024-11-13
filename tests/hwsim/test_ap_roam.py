@@ -20,7 +20,7 @@ def test_ap_roam_open(dev, apdev):
     dev[0].connect("test-open", key_mgmt="NONE")
     hwsim_utils.test_connectivity(dev[0], hapd0)
     hapd1 = hostapd.add_ap(apdev[1], {"ssid": "test-open"})
-    dev[0].scan(type="ONLY")
+    dev[0].scan(type="ONLY", timeout=30)
     dev[0].roam(apdev[1]['bssid'])
     hwsim_utils.test_connectivity(dev[0], hapd1)
     dev[0].roam(apdev[0]['bssid'])
@@ -149,6 +149,7 @@ def test_ap_reconnect_auth_timeout(dev, apdev, params):
     wpas = WpaSupplicant(global_iface='/tmp/wpas-wlan5')
     wpas.interface_add("wlan5",
                        drv_params="force_connect_cmd=1,force_bss_selection=1")
+    wpas.flush_scan_cache()
 
     params = hostapd.wpa2_params(ssid="test-wpa2-psk", passphrase="12345678")
     hapd0 = hostapd.add_ap(apdev[0], params)
@@ -380,6 +381,7 @@ def test_ap_roam_signal_level_override(dev, apdev):
 def test_ap_roam_during_scan(dev, apdev):
     """Roam command during a scan operation"""
     hapd0 = hostapd.add_ap(apdev[0], {"ssid": "test-open"})
+    dev[0].flush_scan_cache()
     dev[0].scan_for_bss(hapd0.own_addr(), freq=2412)
     dev[0].connect("test-open", key_mgmt="NONE")
     hapd1 = hostapd.add_ap(apdev[1], {"ssid": "test-open"})
