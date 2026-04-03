@@ -3,13 +3,13 @@ Authentication:	wpa_supplicant		Autenticazione:
 Cancel	wpa_supplicant		Annulla
 Connect to a WiFi network	wpa_supplicant		Connetti a una rete WiFi
 Failed to join network. (Incorrect password?)	wpa_supplicant		Impossibile connettersi alla rete. (Password errata?)
-Hide password	wpa_supplicant		Hide password
+Hide password	wpa_supplicant		Nascondi password
 Network name:	wpa_supplicant		Nome rete:
 OK	wpa_supplicant		OK
-Open ‒ no encryption	wpa_supplicant		Open ‒ no encryption
-Password format invalid!	wpa_supplicant		Formato della password non valido!
+Open ‒ no encryption	wpa_supplicant		Aperta - senza cifratura
+Password format invalid!	wpa_supplicant		Formato password non valido!
 Password:	wpa_supplicant		Password:
-Show password	wpa_supplicant		Show password
+Show password	wpa_supplicant		Mostra password
 Store this configuration	wpa_supplicant		Salva questa configurazione
-WEP ‒ insecure encryption	wpa_supplicant		WEP ‒ insecure encryption
+WEP ‒ insecure encryption	wpa_supplicant		WEP ‒ cifratura non sicura
 WPA/WPA2	wpa_supplicant		WPA/WPA2
