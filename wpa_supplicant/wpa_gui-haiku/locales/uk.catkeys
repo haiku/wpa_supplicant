@@ -3,13 +3,13 @@ Authentication:	wpa_supplicant		Автентифікація:
 Cancel	wpa_supplicant		Скасувати
 Connect to a WiFi network	wpa_supplicant		Підключитися до мережі WiFi
 Failed to join network. (Incorrect password?)	wpa_supplicant		Неможливо приєднатися до мережі. (Неправильний пароль?)
-Hide password	wpa_supplicant		Hide password
+Hide password	wpa_supplicant		Приховати гасло
 Network name:	wpa_supplicant		Назва мережі:
 OK	wpa_supplicant		OK
-Open ‒ no encryption	wpa_supplicant		Open ‒ no encryption
+Open ‒ no encryption	wpa_supplicant		Відкрито – без шифрування
 Password format invalid!	wpa_supplicant		Недійсний формат пароля!
 Password:	wpa_supplicant		Пароль:
-Show password	wpa_supplicant		Show password
+Show password	wpa_supplicant		Показати гасло
 Store this configuration	wpa_supplicant		Зберегти цю конфігурацію
-WEP ‒ insecure encryption	wpa_supplicant		WEP ‒ insecure encryption
+WEP ‒ insecure encryption	wpa_supplicant		WEP – незахищене шифрування
 WPA/WPA2	wpa_supplicant		WPA/WPA2

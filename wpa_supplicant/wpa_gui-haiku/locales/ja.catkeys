@@ -1,15 +1,15 @@
 1	Japanese	application/x-vnd.malinen-wpa_supplicant	2596284191
-Authentication:	wpa_supplicant		認証:
+Authentication:	wpa_supplicant		認証：
 Cancel	wpa_supplicant		キャンセル
 Connect to a WiFi network	wpa_supplicant		WiFi ネットワークへ接続
-Failed to join network. (Incorrect password?)	wpa_supplicant		ネットワーク接続に失敗しました。 (パスワードが間違っている?)
-Hide password	wpa_supplicant		Hide password
-Network name:	wpa_supplicant		ネットワーク名:
+Failed to join network. (Incorrect password?)	wpa_supplicant		ネットワーク接続に失敗しました。 (パスワードが間違っていますか？)
+Hide password	wpa_supplicant		パスワードを隠す
+Network name:	wpa_supplicant		ネットワーク名：
 OK	wpa_supplicant		OK
-Open ‒ no encryption	wpa_supplicant		Open ‒ no encryption
+Open ‒ no encryption	wpa_supplicant		オープン ‒ 暗号化なし
 Password format invalid!	wpa_supplicant		パスワード形式が無効です!
-Password:	wpa_supplicant		パスワード:
-Show password	wpa_supplicant		Show password
+Password:	wpa_supplicant		パスワード：
+Show password	wpa_supplicant		パスワードを表示
 Store this configuration	wpa_supplicant		この設定を保存
-WEP ‒ insecure encryption	wpa_supplicant		WEP ‒ insecure encryption
+WEP ‒ insecure encryption	wpa_supplicant		WEP ‒ 脆弱な暗号化
 WPA/WPA2	wpa_supplicant		WPA/WPA2

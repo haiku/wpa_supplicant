@@ -3,13 +3,13 @@ Authentication:	wpa_supplicant		Averiguadura:
 Cancel	wpa_supplicant		Annudda
 Connect to a WiFi network	wpa_supplicant		Acroba a una retza chena filos
 Failed to join network. (Incorrect password?)	wpa_supplicant		No est possìbile acrobare a sa retza (una faddina in sa clae?)
-Hide password	wpa_supplicant		Hide password
+Hide password	wpa_supplicant		Cua sa crae de atzessu
 Network name:	wpa_supplicant		Nùmene de sa retza:
 OK	wpa_supplicant		Deghet
-Open ‒ no encryption	wpa_supplicant		Open ‒ no encryption
+Open ‒ no encryption	wpa_supplicant		Aberta ‒ chena tzifradura
 Password format invalid!	wpa_supplicant		Su formadu de sa crae non est bàlidu!
 Password:	wpa_supplicant		Crae de atzessu:
-Show password	wpa_supplicant		Show password
+Show password	wpa_supplicant		Mustra sa crae de atzessu
 Store this configuration	wpa_supplicant		Alloga custu cuncordu
-WEP ‒ insecure encryption	wpa_supplicant		WEP ‒ insecure encryption
+WEP ‒ insecure encryption	wpa_supplicant		WEP ‒ tzifradura chena siguresa
 WPA/WPA2	wpa_supplicant		WPA/WPA2
