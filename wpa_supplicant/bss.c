@@ -1710,6 +1710,11 @@ int wpa_bss_parse_basic_ml_element(struct wpa_supplicant *wpa_s,
 			  ETH_ALEN);
 
 	link_id = ml_basic_common_info->variable[0] & EHT_ML_LINK_ID_MSK;
+	if (link_id >= MAX_NUM_MLD_LINKS) {
+		wpa_printf(MSG_DEBUG, "MLD: Invalid link ID %u in Basic MLE",
+			   link_id);
+		goto out;
+	}
 
 	bss->mld_link_id = link_id;
 	seen = bss->valid_links = BIT(link_id);
