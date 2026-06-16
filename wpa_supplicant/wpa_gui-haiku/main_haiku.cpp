@@ -745,8 +745,15 @@ WPASupplicantApp::_SuccessfullyJoined(const wpa_supplicant *interface,
 		keyStore.AddKey(kWPASupplicantKeyring, key);
 	}
 
-	if (interface == NULL)
+	if (interface == NULL) {
+		network.cipher = 0;
+		network.group_cipher = 0;
+		network.key_mode = 0;
+
+		BNetworkRoster::Default().AddPersistentNetwork(network);
+
 		return;
+	}
 
 	switch (interface->pairwise_cipher) {
 		case WPA_CIPHER_NONE:
