@@ -36,6 +36,8 @@ extern "C" {
 #include "utils/common.h"
 #include "utils/eloop.h"
 #include "common/defs.h"
+#include "common/nan_defs.h"
+#include "common/nan_de.h"
 
 #include "../config.h"
 #include "../notify.h"
@@ -641,7 +643,7 @@ WPASupplicantApp::_LeaveNetwork(BMessage *message)
 		request.i_data = &mlmeRequest;
 		request.i_len = sizeof(mlmeRequest);
 		status = device.Control(SIOCS80211, &request);
-		printf("wpa_gui-haiku: used to MLME to leave, status: %d\n", status);
+		printf("wpa_gui-haiku: used to MLME to leave, status: %d\n", (int)status);
 		return status;
 	}
 
